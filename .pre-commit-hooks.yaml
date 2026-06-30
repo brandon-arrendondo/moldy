@@ -1,0 +1,6 @@
+- id: moldy
+  name: moldy
+  description: Format C/C++ source files with moldy
+  entry: moldy --in-place
+  language: rust
+  types_or: [c, c++]

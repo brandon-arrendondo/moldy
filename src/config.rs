@@ -70,7 +70,11 @@ impl Config {
             NewlineStyle::Lf => "\n",
             NewlineStyle::Crlf => "\r\n",
             NewlineStyle::Native => {
-                if cfg!(windows) { "\r\n" } else { "\n" }
+                if cfg!(windows) {
+                    "\r\n"
+                } else {
+                    "\n"
+                }
             }
         }
     }
@@ -182,12 +186,16 @@ impl<'de> Deserialize<'de> for SpaceOption {
                 write!(f, r#""add", "remove", "preserve", true, or false"#)
             }
             fn visit_bool<E: de::Error>(self, v: bool) -> Result<SpaceOption, E> {
-                Ok(if v { SpaceOption::Add } else { SpaceOption::Remove })
+                Ok(if v {
+                    SpaceOption::Add
+                } else {
+                    SpaceOption::Remove
+                })
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<SpaceOption, E> {
                 match v {
-                    "add"     => Ok(SpaceOption::Add),
-                    "remove"  => Ok(SpaceOption::Remove),
+                    "add" => Ok(SpaceOption::Add),
+                    "remove" => Ok(SpaceOption::Remove),
                     "preserve" => Ok(SpaceOption::Preserve),
                     _ => Err(E::unknown_variant(v, &["add", "remove", "preserve"])),
                 }

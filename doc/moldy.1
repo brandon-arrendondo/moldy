@@ -1,0 +1,131 @@
+.TH MOLDY 1 "2026-06-30" "moldy 0.1.0" "User Commands"
+.SH NAME
+moldy \- multi-language code formatter built on tree-sitter
+.SH SYNOPSIS
+.B moldy
+[\fIOPTIONS\fR] \fIFILE\fR [\fIFILE\fR ...]
+.SH DESCRIPTION
+.B moldy
+reads one or more source files, applies whitespace and brace formatting
+rules, and writes the result to standard output (default), edits the files
+in place
+.RB ( \-i ),
+or checks whether any file would change
+.RB ( \-\-check ).
+.PP
+moldy uses tree-sitter to parse source files and is the spiritual successor
+to
+.BR funky (1).
+It supports C and C++ with the same formatting rules as funky, and is
+designed to expand to additional languages over time.
+.PP
+The formatter is Unicode-safe: identifiers, string literals, and comments
+containing multi-byte UTF-8 sequences (CJK characters, accented letters,
+etc.) are preserved verbatim.
+.PP
+Formatting rules are controlled by a
+.I moldy.toml
+file in the current directory, or by the file given with
+.BR \-c .
+All configuration keys are optional; built-in defaults are used for any
+keys that are absent.
+.PP
+Pass
+.B \-
+as a file argument to read from standard input and write to standard output.
+.SH OPTIONS
+.TP
+.BR \-i ", " \-\-in\-place
+Edit each file in place instead of writing to standard output.
+Mutually exclusive with
+.BR \-\-check .
+.TP
+.B \-\-check
+Check mode: exit with status 1 if any file would be changed by formatting;
+do not write any output.  The name of each file that would change is
+printed to standard error.
+.TP
+.BR \-r ", " \-\-recursive
+Recurse into directories, formatting all source files with recognised
+extensions.
+.TP
+.BI \-c " FILE" "\fR,\fP " \-\-config " FILE"
+Load configuration from
+.I FILE
+instead of
+.I moldy.toml
+in the current directory.
+.TP
+.B \-\-dump\-tree
+Print the tree-sitter CST for each input file to standard output and exit.
+Useful for debugging formatter behaviour.
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version string and exit.
+.SH FILES
+.TP
+.I moldy.toml
+Per-project configuration file, searched in the current working directory.
+See
+.B CONFIGURATION
+below.
+.SH CONFIGURATION
+All keys are optional.  A
+.I funky.toml
+file is also accepted (the two formats are identical for C/C++ formatting).
+.PP
+.nf
+[indent]
+style               = "spaces"  # "spaces" | "tabs"
+width               = 4
+indent_switch_case  = true
+indent_goto_labels  = false
+
+[braces]
+style               = "kr"      # "kr" | "allman" | "stroustrup"
+cuddle_else         = false
+cuddle_catch        = false
+collapse_empty_body = true
+fn_brace_newline    = true
+extern_c_brace      = "force_same_line"
+nl_brace_else       = true
+add_braces_to_if    = true
+add_braces_to_while = true
+add_braces_to_for   = true
+
+[spacing]
+space_before_call_paren     = false
+space_before_keyword_paren  = true
+space_after_comma           = true
+space_around_binary_ops     = true
+pointer_align               = "name"
+align_right_cmt_span        = 3
+align_right_cmt_gap         = 1
+align_right_cmt_style       = "groups"
+align_enum_equ_span         = 1
+align_doxygen_cmt_span      = 1
+align_on_tabstop            = true
+
+[ignore]
+patterns = ["vendor/**", "third_party/**", "*.pb.h"]
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Success (or, in
+.B \-\-check
+mode, no file would change).
+.TP
+.B 1
+In
+.B \-\-check
+mode: one or more files would change.  Otherwise: a fatal error occurred.
+.SH SEE ALSO
+.BR funky (1),
+.BR clang\-format (1),
+.BR uncrustify (1)
+.SH AUTHORS
+Brandon Arrendondo <brandon.arrendondo@bissell.com>

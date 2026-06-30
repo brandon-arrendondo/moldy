@@ -1,5 +1,5 @@
-use moldy::formatter::format_source;
 use moldy::config::Config;
+use moldy::formatter::format_source;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -33,9 +33,10 @@ fn corpus_matches_funky() {
         let source = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
 
-        let expected_path = path.with_extension(
-            format!("{}.expected", path.extension().unwrap().to_str().unwrap())
-        );
+        let expected_path = path.with_extension(format!(
+            "{}.expected",
+            path.extension().unwrap().to_str().unwrap()
+        ));
         let expected = fs::read_to_string(&expected_path)
             .unwrap_or_else(|e| panic!("missing expected file {}: {e}", expected_path.display()));
 
@@ -48,7 +49,10 @@ fn corpus_matches_funky() {
             eprintln!(
                 "FAIL: {}\n  first diff at char {}",
                 path.display(),
-                formatted.chars().zip(expected.chars()).position(|(a, b)| a != b)
+                formatted
+                    .chars()
+                    .zip(expected.chars())
+                    .position(|(a, b)| a != b)
                     .unwrap_or_else(|| formatted.len().min(expected.len()))
             );
             // Print first differing lines
@@ -94,10 +98,6 @@ fn corpus_idempotent() {
         let pass2 = format_source(path, &pass1, &config)
             .unwrap_or_else(|e| panic!("pass2 failed for {}: {e}", path.display()));
 
-        assert_eq!(
-            pass1, pass2,
-            "idempotency failure for {}",
-            path.display()
-        );
+        assert_eq!(pass1, pass2, "idempotency failure for {}", path.display());
     }
 }
