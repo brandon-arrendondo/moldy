@@ -28,7 +28,23 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
     // Continue even if tree has errors; unknown nodes emit their source text.
     let mut fmt = Fmt::new(source, config);
     fmt.emit_translation_unit(tree.root_node());
-    Ok(fmt.finish())
+    let output = fmt.finish();
+
+    let output = if config.spacing.align_right_cmt_span > 0 {
+        let normalize_single = config.spacing.align_right_cmt_style == crate::config::AlignCmtStyle::All;
+        align_trailing_comments(
+            &output,
+            config.spacing.align_right_cmt_gap.max(1) as usize,
+            normalize_single,
+            config.spacing.align_on_tabstop,
+            config.indent.width as usize,
+            config.spacing.align_right_cmt_span as usize,
+        )
+    } else {
+        output
+    };
+
+    Ok(output)
 }
 
 // ── Formatter state ───────────────────────────────────────────────────────────
@@ -43,6 +59,12 @@ struct Fmt<'a> {
     decl_block_active: bool,
     decl_block_saw_decl: bool,
     decl_block_at_stmt_start: bool,
+    // When a column-aligned lambda was just emitted, this holds the column so
+    // that the closing `)` and `;` tokens can be placed on their own lines.
+    last_lambda_col: Option<usize>,
+    // Column after `= ` in an init-declarator, so that a compound-literal `{`
+    // appearing on the next line in emit_leaves can align to it.
+    assign_col_for_brace: Option<usize>,
 }
 
 impl<'a> Fmt<'a> {
@@ -56,6 +78,8 @@ impl<'a> Fmt<'a> {
             decl_block_active: false,
             decl_block_saw_decl: false,
             decl_block_at_stmt_start: false,
+            last_lambda_col: None,
+            assign_col_for_brace: None,
         }
     }
 
@@ -112,6 +136,14 @@ impl<'a> Fmt<'a> {
     fn space(&mut self) {
         if !self.at_bol && !self.out.ends_with(' ') && !self.out.ends_with('\n') {
             self.out.push(' ');
+        }
+    }
+
+    /// Current column (0-indexed) in the output buffer.
+    fn current_col(&self) -> usize {
+        match self.out.rfind('\n') {
+            Some(nl_pos) => self.out.len() - nl_pos - 1,
+            None => self.out.len(),
         }
     }
 
@@ -228,6 +260,19 @@ impl<'a> Fmt<'a> {
                 ";" => {
                     self.raw(";");
                     // If the `;` has a trailing same-line comment, emit it inline.
+                    if let Some(cmt) = trailing_comment {
+                        self.space();
+                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        prev_end = cmt.end_byte();
+                        i += 2;
+                        self.nl();
+                        continue;
+                    }
+                    self.nl();
+                }
+                "expression_statement" if is_null_stmt(child) => {
+                    // Null stmt at top level: always column 0 (funky invariant).
+                    self.raw(";");
                     if let Some(cmt) = trailing_comment {
                         self.space();
                         self.raw(self.node_text(cmt).trim_end_matches('\n'));
@@ -457,8 +502,23 @@ impl<'a> Fmt<'a> {
                 }
                 _ => {
                     // field_initializer_list starts with `:` — no space before it.
-                    if prev.is_some() && !self.at_bol && k != "field_initializer_list" {
-                        self.space();
+                    // function_declarator with paren-first-child that isn't a simple
+                    // fn-ptr (e.g. `int(fp)()`, `int(*f(params))(...)`) gets no space.
+                    let skip_space = k == "field_initializer_list"
+                        || (k == "function_declarator"
+                            && fn_declarator_has_paren_first_child(child)
+                            && !is_simple_fn_ptr_declarator(child));
+                    if prev.is_some() && !self.at_bol && !skip_space {
+                        // Preserve source newline between signature tokens (e.g. `int\nmain40()`).
+                        let source_has_nl = prev
+                            .map(|p| self.src[p.end_byte()..child.start_byte()].contains('\n'))
+                            .unwrap_or(false);
+                        if source_has_nl {
+                            self.nl();
+                            self.emit_indent();
+                        } else {
+                            self.space();
+                        }
                     }
                     self.emit_expr_node(child);
                     prev = Some(child);
@@ -491,6 +551,7 @@ impl<'a> Fmt<'a> {
         };
 
         let mut i = start_i;
+        let mut first_stmt = true;
         while i < end_i {
             let child = children[i];
             let kind = child.kind();
@@ -564,14 +625,29 @@ impl<'a> Fmt<'a> {
                     }
 
                     let emit_blanks = if force_blank { blanks.max(1) } else { blanks };
-                    self.emit_blank_lines(emit_blanks);
 
-                    self.ensure_nl();
-                    // Null statements are emitted at column 0 (funky invariant).
-                    if !is_null_stmt(child) {
-                        self.emit_indent();
+                    if is_null_stmt(child) && self.out.ends_with('}') {
+                        // Null stmt right after `}`: emit `;` inline (funky: `};`).
+                    } else {
+                        self.emit_blank_lines(emit_blanks);
+                        if !is_null_stmt(child) {
+                            self.ensure_nl();
+                            // Standalone `{ }` block as FIRST child of outer `{ }`:
+                            // funky's BraceCtx::Other (prev=LBrace) writes `{` at col 0.
+                            // Only suppress indent when this block is the first content.
+                            let is_first_nested_block = first_stmt && child.kind() == "compound_statement";
+                            if !is_first_nested_block {
+                                self.emit_indent();
+                            }
+                        }
+                        // else: null stmt at BOL → column 0, no indent.
                     }
-                    self.emit_statement(child);
+                    let is_first_block = first_stmt && child.kind() == "compound_statement";
+                    if is_first_block {
+                        self.emit_brace_ctx_other_compound(child);
+                    } else {
+                        self.emit_statement(child);
+                    }
 
                     // After emitting, prepare for next statement in decl block.
                     if self.decl_block_active {
@@ -581,6 +657,7 @@ impl<'a> Fmt<'a> {
             }
 
             prev_end = child.end_byte();
+            first_stmt = false;
             i += 1;
         }
 
@@ -593,6 +670,26 @@ impl<'a> Fmt<'a> {
     }
 
     // ── Statements ────────────────────────────────────────────────────────────
+
+    /// Emit a `compound_statement` that is the first child of another `{...}`
+    /// (funky BraceCtx::Other). Key difference from normal compound_statement:
+    /// if the body ends with a case_statement, the case body's depth increment
+    /// leaks into the closing `}` — matching funky's indent_level behavior.
+    fn emit_brace_ctx_other_compound(&mut self, node: Node) {
+        self.raw("{");
+        self.nl();
+        self.depth += 1;
+        self.emit_compound_body(node);
+        // Funky quirk: case body inside BraceCtx::Other leaks into `}`.
+        if !compound_ends_with_case(node) {
+            self.depth -= 1;
+        }
+        self.ensure_nl();
+        self.emit_indent();
+        // Always restore depth for callers.
+        self.depth = self.depth.saturating_sub(1);
+        self.raw("}");
+    }
 
     fn emit_statement(&mut self, node: Node) {
         match node.kind() {
@@ -678,12 +775,12 @@ impl<'a> Fmt<'a> {
         let mut cursor = node.walk();
         let children: Vec<Node> = node.children(&mut cursor).collect();
 
-        // Labels go at reduced indentation.
+        // When indent_goto_labels = false, labels are placed at column 0.
+        // When true, labels are indented at the current depth.
         let label_depth = if self.config.indent.indent_goto_labels {
             self.depth
         } else {
-            // Labels go at the enclosing block level (not the statement level).
-            self.depth.saturating_sub(1)
+            0
         };
 
         // Strip current-line indentation and re-emit at label depth.
@@ -705,23 +802,57 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
-        if i < children.len() {
-            let stmt = children[i];
-            // If the labeled statement itself is another labeled_statement,
-            // or if it's just `;`, go to next line.
-            if stmt.kind() == "labeled_statement" {
-                self.nl();
-                self.emit_indent();
-                self.emit_statement(stmt);
-            } else if stmt.kind() == ";" {
-                self.nl();
-            } else {
-                self.nl();
-                self.emit_indent();
-                self.emit_statement(stmt);
-            }
-        } else {
+        // Emit all body statements after the label colon.
+        // A labeled_statement may have multiple body children (e.g. a braceless
+        // switch ERROR node followed by a case_statement).
+        if i >= children.len() {
             self.nl();
+            return;
+        }
+
+        // Process the children like a mini compound body, with braceless switch
+        // detection matching emit_compound_body's logic.
+        let mut prev_end = if i > 0 { children[i - 1].end_byte() } else { node.start_byte() };
+        while i < children.len() {
+            let child = children[i];
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            let kind = child.kind();
+
+            // Braceless switch inside a labeled statement body.
+            if kind == "ERROR"
+                && is_braceless_switch_error(child)
+                && i + 1 < children.len()
+                && children[i + 1].kind() == "case_statement"
+            {
+                self.emit_blank_lines(blanks);
+                self.ensure_nl();
+                self.emit_indent();
+                self.emit_braceless_switch_header(child);
+                prev_end = child.end_byte();
+                i += 1;
+
+                let case_node = children[i];
+                let case_blanks = self.source_blanks(prev_end, case_node.start_byte());
+                self.emit_blank_lines(case_blanks);
+                self.ensure_nl();
+                self.emit_indent();
+                self.emit_case_statement(case_node);
+                if self.config.indent.indent_switch_case {
+                    self.depth += 1;
+                }
+                prev_end = case_node.end_byte();
+                i += 1;
+                continue;
+            }
+
+            self.emit_blank_lines(blanks);
+            self.ensure_nl();
+            if !is_null_stmt(child) {
+                self.emit_indent();
+            }
+            self.emit_statement(child);
+            prev_end = child.end_byte();
+            i += 1;
         }
     }
 
@@ -859,8 +990,11 @@ impl<'a> Fmt<'a> {
                 }
                 ";" => {
                     self.raw(";");
-                    // Space after `;` in for-header unless next is `)`.
-                    if i + 1 < children.len() && children[i + 1].kind() != ")" {
+                    // Space after `;` in for-header only when next clause is non-empty
+                    // (i.e., next is neither `)` nor another `;`).
+                    if i + 1 < children.len()
+                        && !matches!(children[i + 1].kind(), ")" | ";")
+                    {
                         self.space();
                     }
                 }
@@ -1069,8 +1203,17 @@ impl<'a> Fmt<'a> {
                 }
                 _ => {
                     self.ensure_nl();
-                    self.emit_indent();
-                    self.emit_statement(child);
+                    // Standalone block `{...}` as first child in switch body:
+                    // funky emits `{` at column 0 (BraceCtx::Other with no indent).
+                    let is_first_block = child.kind() == "compound_statement" && i == start_i;
+                    if !is_first_block {
+                        self.emit_indent();
+                    }
+                    if is_first_block {
+                        self.emit_brace_ctx_other_compound(child);
+                    } else {
+                        self.emit_statement(child);
+                    }
                 }
             }
             prev_end = child.end_byte();
@@ -1132,6 +1275,18 @@ impl<'a> Fmt<'a> {
     fn emit_control_body(&mut self, node: Node, inject: bool) {
         match node.kind() {
             "compound_statement" => {
+                // Collapse empty body when configured.
+                let is_empty = {
+                    let mut c = node.walk();
+                    node.children(&mut c)
+                        .filter(|n| !matches!(n.kind(), "{" | "}"))
+                        .count() == 0
+                };
+                if is_empty && self.config.braces.collapse_empty_body {
+                    self.space();
+                    self.raw("{}");
+                    return;
+                }
                 self.space();
                 self.raw("{");
                 self.nl();
@@ -1582,11 +1737,27 @@ impl<'a> Fmt<'a> {
                     // Emit init_declarator: declarator part + `=` + initializer.
                     if prev.is_some() && !self.at_bol {
                         let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
-                        if prev_kind != "," && !matches!(prev_kind,
+                        if prev_kind == "," {
+                            // `int a = x, b = y` — space after comma between declarators.
+                            self.space();
+                        } else if !matches!(prev_kind,
                             "pointer_declarator" | "abstract_pointer_declarator"
                             | "reference_declarator")
                         {
-                            self.space();
+                            // Check if init_declarator starts with a function_declarator
+                            // that has a non-simple paren first child (no space needed).
+                            let first_fn_decl = {
+                                let mut ic = child.walk();
+                                let ch: Vec<Node> = child.children(&mut ic).collect();
+                                ch.into_iter().find(|n| n.kind() == "function_declarator")
+                            };
+                            let suppress = first_fn_decl.map(|fd|
+                                fn_declarator_has_paren_first_child(fd)
+                                && !is_simple_fn_ptr_declarator(fd)
+                            ).unwrap_or(false);
+                            if !suppress {
+                                self.space();
+                            }
                         }
                     }
                     self.emit_init_declarator(child);
@@ -1594,9 +1765,22 @@ impl<'a> Fmt<'a> {
                 _ => {
                     if prev.is_some() && !self.at_bol {
                         let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
-                        let needs_space = k != "," && !matches!(prev_kind,
+                        let mut needs_space = k != "," && !matches!(prev_kind,
                             "pointer_declarator" | "abstract_pointer_declarator"
                             | "reference_declarator");
+                        // `int(fp)()` — function_declarator whose parenthesized_declarator
+                        // wraps only an identifier (not a pointer_declarator) needs no
+                        // space before it (matching funky's `next_is_fn_ptr_declarator`
+                        // returning false for non-pointer names).
+                        if needs_space && k == "function_declarator" {
+                            // Suppress space for `int(fp)()` and `int(*f(p))()` but
+                            // keep space for simple fn-ptr form `int (*fp)()`.
+                            if fn_declarator_has_paren_first_child(child)
+                                && !is_simple_fn_ptr_declarator(child)
+                            {
+                                needs_space = false;
+                            }
+                        }
                         if needs_space {
                             self.space();
                         }
@@ -1626,6 +1810,9 @@ impl<'a> Fmt<'a> {
             } else if ck == "=" {
                 self.space();
                 self.raw("=");
+                // Record column after `= ` so that a compound-literal `{` on
+                // the next line can align to it (matching funky's assign_col).
+                self.assign_col_for_brace = Some(self.current_col() + 1);
             } else {
                 if prev.is_some() && !self.at_bol {
                     self.space();
@@ -1905,10 +2092,98 @@ impl<'a> Fmt<'a> {
             "enum_specifier" => self.emit_enum_like(node),
             "class_specifier" => self.emit_class_like(node),
             "initializer_list" => self.emit_initializer_list(node),
+            "lambda_expression" => self.emit_lambda_expression(node),
             _ => {
                 let mut leaves = vec![];
                 collect_leaves(node, &mut leaves);
                 self.emit_leaves(&leaves);
+            }
+        }
+    }
+
+    /// C++ lambda: `[capture](params) { body }`.
+    /// When fn_brace_newline is on, the body `{`, statements, and `}` are all
+    /// placed on separate lines, column-aligned to the `[` of the capture.
+    fn emit_lambda_expression(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let body_idx = children.iter().position(|n| n.kind() == "compound_statement");
+
+        let sig_nodes: &[Node] = match body_idx {
+            Some(bi) => &children[..bi],
+            None => &children,
+        };
+
+        // Record column of the `[` (first char of capture specifier) before emitting.
+        let lambda_col = self.current_col();
+
+        // Emit sig (capture + params + trailing qualifiers).
+        for child in sig_nodes {
+            let mut sig_leaves = vec![];
+            collect_leaves(*child, &mut sig_leaves);
+            self.emit_leaves(&sig_leaves);
+        }
+
+        if let Some(bi) = body_idx {
+            let body = children[bi];
+            // Determine if last sig token is `)` — if so, fn_brace_newline applies.
+            let sig_ends_rparen = sig_nodes.last().map(|&n| {
+                let mut node = n;
+                while node.child_count() > 0 {
+                    node = node.child(node.child_count() - 1).unwrap();
+                }
+                node.kind() == ")"
+            }).unwrap_or(false);
+
+            if self.config.braces.fn_brace_newline && sig_ends_rparen {
+                // Column-aligned lambda body: `{`, each statement, `}` all at lambda_col.
+                let col_indent = " ".repeat(lambda_col);
+                self.nl();
+                self.raw(&col_indent);
+                self.raw("{");
+                // Emit each statement in the body at lambda_col.
+                let mut bcursor = body.walk();
+                let body_children: Vec<Node> = body.children(&mut bcursor).collect();
+                for bchild in &body_children {
+                    match bchild.kind() {
+                        "{" | "}" => {}
+                        _ => {
+                            self.nl();
+                            self.raw(&col_indent);
+                            self.emit_statement(*bchild);
+                            // Strip trailing newline from emit_statement.
+                            if self.out.ends_with('\n') {
+                                self.out.pop();
+                                self.at_bol = false;
+                            }
+                        }
+                    }
+                }
+                self.nl();
+                self.raw(&col_indent);
+                self.raw("}");
+                // Signal emit_leaves to put the closing `)` and `;` on their
+                // own lines at the same column (funky's continuation behaviour).
+                self.last_lambda_col = Some(lambda_col);
+            } else {
+                // Inline or regular body.
+                let inline = !self.config.braces.fn_brace_newline
+                    && body.start_position().row == body.end_position().row;
+                if inline {
+                    self.emit_compound_body_inline(body);
+                } else {
+                    self.nl();
+                    self.emit_indent();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_compound_body(body);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
             }
         }
     }
@@ -1969,7 +2244,14 @@ impl<'a> Fmt<'a> {
                 row_start = true;
             }
             if row_start {
-                self.emit_indent();
+                // `initializer_list` elements (starting with `{`) are written
+                // with no leading indent — funky's BraceCtx::Other logic calls
+                // space() which does nothing at line-start, so the `{` lands at
+                // its source column (typically 0). All other elements use the
+                // standard indent for the current depth.
+                if elem.node.kind() != "initializer_list" {
+                    self.emit_indent();
+                }
                 row_start = false;
             } else {
                 self.raw(",");
@@ -1987,13 +2269,131 @@ impl<'a> Fmt<'a> {
         }
 
         self.depth -= 1;
+        // Closing `}` always at current indent depth.
         self.emit_indent();
         self.raw("}");
     }
 
     fn emit_leaves<'t>(&mut self, leaves: &[Node<'t>]) {
+        // paren_col_stack tracks the column after each `(` so that source
+        // newlines inside parenthesized expressions are re-indented to align
+        // with the opening paren (matching funky's continuation behavior).
+        let mut paren_col_stack: Vec<usize> = Vec::new();
+        // bracket_depth for `[...]` — used to determine when `=` is at
+        // statement level vs inside a subscript.
+        let mut bracket_depth: i32 = 0;
+        // assign_col_for_brace tracks the column after `= ` so that a
+        // compound-literal `{` on the next line aligns to it.  Initialized
+        // from the Fmt field (set by emit_init_declarator) and also updated
+        // inline when `=` is seen inside emit_leaves itself.
+        let mut assign_col_for_brace: Option<usize> = self.assign_col_for_brace.take();
+        // source_brace_depth > 0 when we're inside a `{...}` block that started
+        // on a new line outside parens (e.g. a compound literal's initializer).
+        // In that mode, all source newlines are preserved using the source column
+        // plus an offset (to account for surrounding indentation).
+        let mut source_brace_depth: i32 = 0;
+        // Delta added to source column when in source_brace_depth mode.
+        let mut source_brace_col_delta: i32 = 0;
+
         for (i, &leaf) in leaves.iter().enumerate() {
             let prev = if i > 0 { Some(leaves[i - 1]) } else { None };
+            // Lambda expressions are collected as opaque pseudo-leaves; dispatch them.
+            if leaf.kind() == "lambda_expression" {
+                let ws = self.ws_before_lambda(leaf, prev);
+                match ws {
+                    Ws::None => {}
+                    Ws::Space => self.space(),
+                }
+                self.emit_lambda_expression(leaf);
+                continue;
+            }
+            // After a column-aligned lambda, `)` goes on its own line at the
+            // lambda's column; `;` follows on that same line (funky's continuation).
+            if let Some(col) = self.last_lambda_col {
+                if leaf.kind() == ")" {
+                    self.nl();
+                    self.raw(&" ".repeat(col));
+                    self.raw(")");
+                    paren_col_stack.pop();
+                    continue; // keep last_lambda_col set so `;` appends inline
+                } else if leaf.kind() == ";" {
+                    self.raw(";");
+                    self.last_lambda_col = None;
+                    continue;
+                } else {
+                    self.last_lambda_col = None;
+                }
+            }
+
+            // Source-newline preservation inside parentheses: if the source
+            // has a newline between prev and this token and we're inside
+            // open parens, emit a newline + align to the paren column.
+            let source_has_nl = if let Some(p) = prev {
+                self.src[p.end_byte()..leaf.start_byte()].contains('\n')
+            } else {
+                false
+            };
+
+            if source_has_nl && !paren_col_stack.is_empty() {
+                let col = *paren_col_stack.last().unwrap();
+                self.nl();
+                self.raw(&" ".repeat(col));
+                let text = self.node_text(leaf);
+                self.raw(text);
+                if leaf.kind() == "(" {
+                    paren_col_stack.push(self.current_col());
+                } else if leaf.kind() == ")" {
+                    paren_col_stack.pop();
+                }
+                continue;
+            }
+
+            // Source-column mode: a `{` that appeared on a new line outside
+            // parens (compound literal initializer) entered source-column mode.
+            // Preserve source column (+ delta) for all tokens until the matching `}`.
+            if source_brace_depth > 0 {
+                if leaf.kind() == "}" {
+                    source_brace_depth -= 1;
+                }
+                if source_has_nl {
+                    let src_col = leaf.start_position().column as i32;
+                    let out_col = (src_col + source_brace_col_delta).max(0) as usize;
+                    self.nl();
+                    self.raw(&" ".repeat(out_col));
+                    self.raw(self.node_text(leaf));
+                } else {
+                    let ws = self.ws_before(leaf, prev);
+                    match ws {
+                        Ws::None => {}
+                        Ws::Space => self.space(),
+                    }
+                    self.raw(self.node_text(leaf));
+                }
+                if leaf.kind() == "{" {
+                    source_brace_depth += 1;
+                }
+                continue;
+            }
+
+            // Detect compound-literal `{` on its own line: enter source-column mode.
+            // Use assign_col_for_brace (column after `= `) if available, otherwise
+            // use the source column directly.
+            if source_has_nl && leaf.kind() == "{" && paren_col_stack.is_empty() {
+                let src_col = leaf.start_position().column;
+                let (out_col, delta) = if let Some(ac) = assign_col_for_brace {
+                    (ac, ac as i32 - src_col as i32)
+                } else {
+                    (src_col, 0)
+                };
+                assign_col_for_brace = None;
+                self.nl();
+                self.raw(&" ".repeat(out_col));
+                self.raw("{");
+                source_brace_depth = 1;
+                source_brace_col_delta = delta;
+                continue;
+            }
+
             let ws = self.ws_before(leaf, prev);
             match ws {
                 Ws::None => {}
@@ -2001,6 +2401,40 @@ impl<'a> Fmt<'a> {
             }
             let text = self.node_text(leaf);
             self.raw(text);
+
+            // Update paren/bracket column tracking.
+            if leaf.kind() == "(" {
+                paren_col_stack.push(self.current_col());
+            } else if leaf.kind() == ")" {
+                paren_col_stack.pop();
+            } else if leaf.kind() == "[" {
+                bracket_depth += 1;
+            } else if leaf.kind() == "]" {
+                bracket_depth = bracket_depth.saturating_sub(1);
+            }
+
+            // Track assignment column: when `=` is emitted outside parens and
+            // brackets, note the column where the RHS will start (col after `= `).
+            // This is used to align compound-literal `{` on the next line.
+            if leaf.kind() == "="
+                && paren_col_stack.is_empty()
+                && bracket_depth == 0
+                && assign_col_for_brace.is_none()
+            {
+                // After writing `=`, the next token will have a space before it,
+                // so the brace column is current_col + 1 (for the space).
+                assign_col_for_brace = Some(self.current_col() + 1);
+            } else if leaf.kind() == ";" {
+                assign_col_for_brace = None;
+            }
+        }
+    }
+
+    /// ws_before for a lambda_expression pseudo-leaf: space after `,`, none after `(`.
+    fn ws_before_lambda<'t>(&self, _node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
+        match prev.map(|n| n.kind()).unwrap_or("") {
+            "" | "(" | "[" => Ws::None,
+            _ => Ws::Space,
         }
     }
 
@@ -2013,6 +2447,21 @@ impl<'a> Fmt<'a> {
         // First token — no space.
         if prev_kind.is_empty() {
             return Ws::None;
+        }
+
+        // No space before `[` in array declarators (e.g. `int[]`, `int[5]`, `int a[5]`).
+        if kind == "[" {
+            let in_array_decl = node.parent()
+                .map(|p| matches!(
+                    p.kind(),
+                    "abstract_array_declarator"
+                    | "abstract_sized_array_declarator"
+                    | "array_declarator"
+                ))
+                .unwrap_or(false);
+            if in_array_decl {
+                return Ws::None;
+            }
         }
 
         // Space between consecutive subscript designators `] [` (e.g. `[1] [2]`).
@@ -2137,10 +2586,14 @@ impl<'a> Fmt<'a> {
                 };
             }
             // After binary/ternary operators: always space before `(`.
-            // But NOT after unary `*` (pointer dereference) or `&` (address-of).
+            // But NOT after unary `*` (pointer dereference), `&` (address-of),
+            // or pointer-declarator `*`/`&` (these look like binary ops but aren't).
             let prev_is_unary = matches!(prev_kind, "*" | "&" | "!" | "~" | "-" | "+")
                 && prev.and_then(|n| n.parent())
-                    .map(|p| matches!(p.kind(), "pointer_expression" | "unary_expression"))
+                    .map(|p| matches!(p.kind(),
+                        "pointer_expression" | "unary_expression"
+                        | "pointer_declarator" | "abstract_pointer_declarator"
+                        | "reference_declarator" | "abstract_reference_declarator"))
                     .unwrap_or(false);
             // `>` closing a template argument list is NOT a binary operator.
             let prev_is_template_close = prev_kind == ">"
@@ -2158,18 +2611,94 @@ impl<'a> Fmt<'a> {
             if matches!(prev_kind, "identifier" | "type_identifier" | ")" | "]")
                 || is_call_like_keyword
             {
+                // `arr[i](args)` — calling through a subscript result: funky's
+                // needs_space(LParen) falls through to `return true` for `]`
+                // (it's not treated as Ident/Keyword). Add space to match.
+                if prev_kind == "]" {
+                    return Ws::Space;
+                }
                 return if self.config.spacing.space_before_call_paren {
                     Ws::Space
                 } else {
                     Ws::None
                 };
             }
+            // `(` is the opening paren of a `parenthesized_declarator` inside a
+            // `function_declarator`.  Space rules:
+            // - Simple fn-ptr `(*name)` after type/keyword/ptr-star → space
+            //   (funky: `needs_space(LParen)` returns true for most prev tokens)
+            // - Non-simple `(name)` form or compound fn-ptr-of-fn-ptr → no space
+            if node.parent().map(|p| p.kind()) == Some("parenthesized_declarator") {
+                if let Some(fn_decl) = node.parent().and_then(|p| p.parent()) {
+                    if fn_decl.kind() == "function_declarator" {
+                        // `prev_is_decl_star` is true only for top-level pointer
+                        // declarator stars (not nested inside another paren), e.g.
+                        // `typedef S * (*fty)()` but NOT `int(* (*p)...)`.
+                        // funky: inside a paren, `*` is processed by fmt_unary_binary
+                        // which sets suppress_next_space; at top level it uses
+                        // fmt_ptr_decl which does NOT suppress the next space for the
+                        // paren → the space is added via needs_space fallthrough.
+                        let prev_is_decl_star = matches!(prev_kind, "*" | "&")
+                            && prev.and_then(|n| n.parent())
+                                .map(|p| matches!(p.kind(),
+                                    "pointer_declarator" | "abstract_pointer_declarator"
+                                    | "reference_declarator"))
+                                .unwrap_or(false)
+                            && prev.and_then(|n| n.parent()).and_then(|p| p.parent())
+                                .map(|gp| gp.kind() != "parenthesized_declarator")
+                                .unwrap_or(true);
+                        let prev_is_type = matches!(prev_kind,
+                            "primitive_type" | "type_identifier" | "type_qualifier"
+                            | "identifier" | ")" | ">");
+                        if (prev_is_type || prev_is_decl_star) && is_simple_fn_ptr_declarator(fn_decl) {
+                            return Ws::Space;
+                        }
+                        return Ws::None;
+                    }
+                }
+            }
             return Ws::None;
         }
 
-        // After `,`: space.
+        // After `,`: space — but replicate funky's suppress_next_space quirk:
+        // when the token before `,` was a pointer `*` that followed a type KEYWORD
+        // (not an identifier), suppress the space. `char *,T` → no space;
+        // `struct S *,T` → space (because `S` is an ident, not a keyword).
         if prev_kind == "," {
-            return if self.config.spacing.space_after_comma { Ws::Space } else { Ws::None };
+            if self.config.spacing.space_after_comma {
+                let star_before_comma = prev.and_then(|comma| comma.prev_sibling())
+                    .map(|before| {
+                        let leaf = last_leaf_of(before);
+                        if leaf.kind() != "*" {
+                            return false;
+                        }
+                        let in_ptr = leaf.parent().map_or(false, |p| {
+                            matches!(p.kind(), "abstract_pointer_declarator" | "pointer_declarator")
+                        });
+                        if !in_ptr {
+                            return false;
+                        }
+                        // Only suppress when the leaf before the `*` is a type
+                        // keyword (not an ident like a struct tag name).
+                        // The `*` is often the only child of abstract_pointer_declarator,
+                        // so look at the prev_sibling of the ptr-declarator's ancestor.
+                        let prev_sibling = leaf.prev_sibling()
+                            .or_else(|| leaf.parent()?.prev_sibling());
+                        prev_sibling.map_or(false, |ps| {
+                            let last = last_leaf_of(ps);
+                            matches!(last.kind(), "primitive_type" | "type_qualifier" | "sized_type_specifier")
+                                || (last.kind() == "*" && last.parent().map_or(false, |p| {
+                                    matches!(p.kind(), "abstract_pointer_declarator" | "pointer_declarator")
+                                }))
+                        })
+                    })
+                    .unwrap_or(false);
+                if star_before_comma {
+                    return Ws::None;
+                }
+                return Ws::Space;
+            }
+            return Ws::None;
         }
 
         // Unary operators: no space after them.
@@ -2260,6 +2789,10 @@ impl<'a> Fmt<'a> {
 
         // Binary operators: space around them (when space_around_binary_ops).
         if is_binary_op_kind(kind) {
+            // After ternary `:`, no space before a unary operator (funky: `:-1`).
+            if prev_kind == ":" && is_unary_prefix(kind, Some(node)) {
+                return Ws::None;
+            }
             return if self.config.spacing.space_around_binary_ops {
                 Ws::Space
             } else {
@@ -2308,6 +2841,13 @@ impl<'a> Fmt<'a> {
                 if in_init_list {
                     return Ws::None;
                 }
+            }
+            // After `:`, no space before a unary operator or negative literal (funky: `:-1`).
+            if prev_kind == ":" && (
+                is_unary_prefix(kind, Some(node))
+                || (kind == "number_literal" && text.starts_with('-'))
+            ) {
+                return Ws::None;
             }
             return Ws::Space;
         }
@@ -2400,7 +2940,9 @@ enum Ws {
 }
 
 fn collect_leaves<'t>(node: Node<'t>, out: &mut Vec<Node<'t>>) {
-    if node.child_count() == 0 {
+    if node.child_count() == 0 || node.kind() == "lambda_expression" {
+        // Treat lambda_expression as an opaque leaf so emit_leaves can dispatch
+        // it to emit_lambda_expression rather than flattening its body tokens.
         out.push(node);
         return;
     }
@@ -2467,6 +3009,27 @@ fn should_inject(node: Node) -> bool {
     }
 }
 
+/// Funky quirk: when a `case_statement` is the last body statement of a
+/// BraceCtx::Other block (column-0 `{...}` directly after another `{`),
+/// the case body's indent_level increment leaks into the closing `}`.
+/// Returns true when the compound_statement's last content is a case.
+fn compound_ends_with_case(node: Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.children(&mut cursor).collect();
+    let last = children.iter().rev().find(|n| !matches!(n.kind(), "{" | "}"));
+    match last {
+        None => false,
+        Some(n) => match n.kind() {
+            "case_statement" => true,
+            "labeled_statement" => {
+                let mut c2 = n.walk();
+                n.children(&mut c2).last().map_or(false, |lc| lc.kind() == "case_statement")
+            }
+            _ => false,
+        },
+    }
+}
+
 fn is_binary_op_kind(kind: &str) -> bool {
     matches!(
         kind,
@@ -2505,6 +3068,16 @@ fn is_unary_prefix(kind: &str, node: Option<Node<'_>>) -> bool {
     false
 }
 
+fn last_leaf_of(mut node: Node<'_>) -> Node<'_> {
+    loop {
+        let count = node.child_count();
+        if count == 0 {
+            return node;
+        }
+        node = node.child(count - 1).unwrap();
+    }
+}
+
 fn is_suffix(node: Node<'_>) -> bool {
     if let Some(parent) = node.parent() {
         if parent.kind() == "update_expression" {
@@ -2537,4 +3110,170 @@ fn is_keyword_str(text: &str) -> bool {
 
 fn is_declaration_node(node: Node) -> bool {
     matches!(node.kind(), "declaration" | "type_definition")
+}
+
+/// Returns true when a `function_declarator` node's first meaningful child
+/// is a `parenthesized_declarator` (i.e. starts with `(`).
+fn fn_declarator_has_paren_first_child(fn_decl: Node) -> bool {
+    let mut cur = fn_decl.walk();
+    let children: Vec<Node> = fn_decl.children(&mut cur).collect();
+    children.iter().any(|n| n.kind() == "parenthesized_declarator")
+}
+
+/// Returns true when a `function_declarator` node's first child is a
+/// `parenthesized_declarator` that holds `(*name)` or `(&name)` — i.e.,
+/// a simple function-pointer/reference declarator where the name is directly
+/// inside the parens with no further parameter list.  This mirrors funky's
+/// `next_is_fn_ptr_declarator()` which requires `*`/`&` → Ident → `)`.
+///
+/// When false, no space should be emitted before the `(` of the declarator
+/// (e.g. `int(fp)()`, `int(*f(params))(...)`).
+fn is_simple_fn_ptr_declarator(fn_decl: Node) -> bool {
+    let mut cur = fn_decl.walk();
+    let paren_decl = match fn_decl.children(&mut cur).find(|n| n.kind() == "parenthesized_declarator") {
+        Some(n) => n,
+        None => return false,
+    };
+    let mut inner_cur = paren_decl.walk();
+    let inner: Vec<Node> = paren_decl.children(&mut inner_cur).collect();
+    // inner should be: `(`, pointer_declarator, `)`
+    let ptr_decl = match inner.iter().find(|n| n.kind() == "pointer_declarator") {
+        Some(n) => *n,
+        None => return false,
+    };
+    // pointer_declarator children: `*`/`&`, then exactly an identifier (not function_declarator)
+    let mut ptr_cur = ptr_decl.walk();
+    let ptr_children: Vec<Node> = ptr_decl.children(&mut ptr_cur).collect();
+    // Must have exactly 2 children: `*` (or `&`) and `identifier`/`type_identifier`
+    let non_star: Vec<&Node> = ptr_children.iter().filter(|n| !matches!(n.kind(), "*" | "&")).collect();
+    non_star.len() == 1 && matches!(non_star[0].kind(), "identifier" | "type_identifier" | "field_identifier")
+}
+
+// ── Post-processing: trailing comment alignment ───────────────────────────────
+
+/// Return the byte offset of the `/*` or `//` that starts a TRAILING comment
+/// on `line` (i.e., code appears before the comment), or `None` otherwise.
+fn trailing_comment_col(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let n = bytes.len();
+    let mut in_str = false;
+    let mut str_ch = b'"';
+    let mut code_seen = false;
+    let mut i = 0;
+    while i < n {
+        let b = bytes[i];
+        if in_str {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == str_ch {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            in_str = true;
+            str_ch = b;
+            code_seen = true;
+            i += 1;
+            continue;
+        }
+        if i + 1 < n && b == b'/' {
+            if bytes[i + 1] == b'*' || bytes[i + 1] == b'/' {
+                // Only a trailing comment if code appeared before this.
+                if code_seen {
+                    return Some(i);
+                }
+                return None;
+            }
+        }
+        if b != b' ' && b != b'\t' {
+            code_seen = true;
+        }
+        i += 1;
+    }
+    None
+}
+
+fn round_up_to_multiple(n: usize, m: usize) -> usize {
+    if m == 0 { return n; }
+    ((n + m - 1) / m) * m
+}
+
+/// Post-processing pass: align trailing comments within groups of consecutive
+/// commented lines. Replicates funky's `align_trailing_comments` semantics.
+fn align_trailing_comments(
+    output: &str,
+    min_gap: usize,
+    normalize_single: bool,
+    on_tabstop: bool,
+    tab_width: usize,
+    span: usize,
+) -> String {
+    let lines: Vec<&str> = output.split('\n').collect();
+    let n = lines.len();
+    let cols: Vec<Option<usize>> = lines.iter().map(|l| trailing_comment_col(l)).collect();
+    let mut result: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+
+    let mut i = 0;
+    while i < n {
+        if cols[i].is_some() {
+            // Extend the group as long as the next commented line is within
+            // `span` non-commented lines of the last commented line found.
+            let mut last_cmt = i;
+            let mut scan = i + 1;
+            loop {
+                let next = (scan..n).find(|&k| cols[k].is_some());
+                match next {
+                    Some(k) if k - last_cmt < span => {
+                        last_cmt = k;
+                        scan = k + 1;
+                    }
+                    _ => break,
+                }
+            }
+            let j = last_cmt + 1;
+
+            let commented_in_group = (i..j).filter(|&k| cols[k].is_some()).count();
+            let is_single = commented_in_group == 1;
+            if is_single && !normalize_single {
+                i = j;
+                continue;
+            }
+
+            // Use byte-length of the code portion (before comment), matching funky.
+            let max_code_len = (i..j)
+                .filter(|&k| cols[k].is_some())
+                .map(|k| {
+                    let col = cols[k].unwrap();
+                    lines[k][..col].trim_end().len() // byte len
+                })
+                .max()
+                .unwrap_or(0);
+
+            let raw_target = max_code_len + min_gap;
+            let target = if on_tabstop && tab_width > 0 {
+                round_up_to_multiple(raw_target, tab_width)
+            } else {
+                raw_target
+            };
+
+            for k in i..j {
+                if let Some(col) = cols[k] {
+                    let code = lines[k][..col].trim_end();
+                    let comment = lines[k][col..].trim_start_matches(' ');
+                    let pad = target.saturating_sub(code.len()).max(1);
+                    result[k] = format!("{}{}{}", code, " ".repeat(pad), comment);
+                }
+            }
+
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+
+    result.join("\n")
 }
