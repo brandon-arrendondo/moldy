@@ -3,11 +3,9 @@ use globset::{Glob, GlobSetBuilder};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-mod config;
-mod error;
-mod formatter;
-
-use config::Config;
+use moldy::config::Config;
+use moldy::error;
+use moldy::formatter;
 
 #[derive(Parser)]
 #[command(

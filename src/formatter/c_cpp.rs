@@ -1,74 +1,19 @@
-// C and C++ share a formatter because their tree-sitter node kinds overlap
-// almost entirely. `lang_key` is "c" or "cpp" and can drive any divergences.
+// C and C++ formatter: CST recursive-descent with leaf-walker for expressions.
 //
-// IMPLEMENTATION STATUS: stub — parses with tree-sitter, returns source
-// unchanged. The formatting logic is the main work item for this crate.
-//
-// GOAL: produce output identical to funky for all C/C++ inputs.
-// REFERENCE: ../funky/src/formatter.rs  (token-stream reference implementation)
-//            ../funky/src/config.rs      (config structure is intentionally identical)
-//            ../funky/tests/corpus/      (acceptance test inputs/expected outputs)
-//
-// APPROACH (CST leaf-node walker):
-//
-//   tree-sitter does not store whitespace in the tree. Instead, walk every
-//   leaf node (child_count() == 0) in source order. The "gap" between
-//   consecutive leaf byte ranges is where original whitespace lived — ignore
-//   it and emit formatter-controlled whitespace instead.
-//
-//   For each leaf, determine what whitespace to emit *before* it based on:
-//     - the previous leaf's node kind
-//     - the current leaf's node kind
-//     - the current node's parent/ancestor chain (for indentation depth)
-//     - the active Config
-//
-//   Context that a plain token-stream walker cannot derive from a flat stream
-//   is now cheaply available via node.parent() and ancestor iteration — use
-//   that to simplify logic compared to funky's BraceCtx stack.
-//
-// KEY TREE-SITTER NODE KINDS (C / C++):
-//   translation_unit        root of every file
-//   function_definition     function definition (not declaration)
-//   compound_statement      { ... } block
-//   if_statement            if / else if / else
-//   for_statement           for loop
-//   while_statement         while loop
-//   do_statement            do { } while
-//   switch_statement        switch
-//   case_statement          case / default arm
-//   return_statement        return expr;
-//   declaration             variable or type declaration
-//   type_definition         typedef
-//   struct_specifier        struct { }
-//   union_specifier         union { }
-//   enum_specifier          enum { }
-//   comment                 // line comment OR /* block comment */
-//   preproc_include         #include
-//   preproc_def             #define (object-like)
-//   preproc_function_def    #define (function-like)
-//   preproc_if              #if / #ifdef / #ifndef
-//   preproc_else            #else
-//   preproc_elif            #elif
-//   preproc_endif           #endif (unnamed, anon node)
-//   parameter_declaration   function parameter
-//   abstract_declarator     e.g. pointer in a cast
-//   initializer_list        { a, b, c } aggregate init
-//   "("  ")"  "{"  "}"     anonymous punctuation nodes
-//   "["  "]"  "<"  ">"
-//   ";"  ","  ":"
-//   "="  "+"  "-"  "*"  "/", etc.  (binary op anonymous nodes)
-//
-// NOTE: anonymous nodes (node.is_named() == false) are punctuation and
-//   operators. Named nodes are syntactic constructs. Use node.kind() for both.
+// Goal: produce output identical to funky for all C/C++ files.
+// Reference: ../funky/src/formatter.rs  (config is intentionally identical)
 
-use crate::config::Config;
+use crate::config::{Config, IndentStyle, PointerAlign, SpaceOption};
 use crate::error::MoldyError;
+use tree_sitter::Node;
+
+// ── Public entry point ────────────────────────────────────────────────────────
 
 pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, MoldyError> {
     let ts_lang: tree_sitter::Language = match lang_key {
-        "c"   => lang_parsing_substrate::tree_sitter_c::LANGUAGE.into(),
+        "c" => lang_parsing_substrate::tree_sitter_c::LANGUAGE.into(),
         "cpp" => lang_parsing_substrate::tree_sitter_cpp::LANGUAGE.into(),
-        _     => unreachable!("c_cpp formatter called with unexpected language key"),
+        _ => unreachable!("c_cpp formatter called with unexpected language key"),
     };
 
     let mut parser = tree_sitter::Parser::new();
@@ -80,46 +25,2516 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
         .parse(source, None)
         .ok_or_else(|| MoldyError::Parse("tree-sitter returned no tree".into()))?;
 
-    if tree.root_node().has_error() {
-        // Pass source through unchanged when the file has syntax errors.
-        // TODO: decide whether to attempt partial formatting.
-        return Ok(source.to_string());
+    // Continue even if tree has errors; unknown nodes emit their source text.
+    let mut fmt = Fmt::new(source, config);
+    fmt.emit_translation_unit(tree.root_node());
+    Ok(fmt.finish())
+}
+
+// ── Formatter state ───────────────────────────────────────────────────────────
+
+struct Fmt<'a> {
+    src: &'a str,
+    config: &'a Config,
+    out: String,
+    depth: u32,
+    at_bol: bool,
+    // blank_line_after_var_decl_block state
+    decl_block_active: bool,
+    decl_block_saw_decl: bool,
+    decl_block_at_stmt_start: bool,
+}
+
+impl<'a> Fmt<'a> {
+    fn new(src: &'a str, config: &'a Config) -> Self {
+        Fmt {
+            src,
+            config,
+            out: String::with_capacity(src.len()),
+            depth: 0,
+            at_bol: true,
+            decl_block_active: false,
+            decl_block_saw_decl: false,
+            decl_block_at_stmt_start: false,
+        }
     }
 
-    // ── TODO: implement CST-based formatter ──────────────────────────────────
-    //
-    // Replace this stub with a Formatter struct (see below for the skeleton)
-    // that walks all leaf nodes in order and reconstructs formatted output.
-    //
-    // Suggested struct layout:
-    //
-    //   struct Fmt<'src> {
-    //       src:    &'src str,
-    //       config: &'src Config,
-    //       out:    String,
-    //       depth:  u32,          // current brace depth
-    //       pp_depth: u32,        // preprocessor #if nesting depth
-    //   }
-    //
-    //   impl<'src> Fmt<'src> {
-    //       fn run(mut self, tree: &tree_sitter::Tree) -> Result<String, MoldyError> {
-    //           let mut leaves = vec![];
-    //           collect_leaves(tree.root_node(), &mut leaves);
-    //           for (i, node) in leaves.iter().enumerate() {
-    //               let prev = if i > 0 { Some(leaves[i-1]) } else { None };
-    //               self.emit_before(prev, *node);
-    //               self.out.push_str(&self.src[node.start_byte()..node.end_byte()]);
-    //           }
-    //           Ok(self.out)
-    //       }
-    //   }
-    //
-    //   fn collect_leaves<'tree>(node: tree_sitter::Node<'tree>, out: &mut Vec<tree_sitter::Node<'tree>>) {
-    //       if node.child_count() == 0 { out.push(node); return; }
-    //       let mut cursor = node.walk();
-    //       for child in node.children(&mut cursor) { collect_leaves(child, out); }
-    //   }
+    fn finish(mut self) -> String {
+        let trimmed_len = self
+            .out
+            .trim_end_matches(|c: char| c == '\n' || c == '\r' || c == ' ' || c == '\t')
+            .len();
+        self.out.truncate(trimmed_len);
+        if self.config.newlines.final_newline && !self.out.is_empty() {
+            self.out.push('\n');
+        }
+        self.out
+    }
 
-    let _ = (tree, config);
-    Ok(source.to_string())
+    // ── Output primitives ─────────────────────────────────────────────────────
+
+    fn indent_str_at(&self, d: u32) -> String {
+        match self.config.indent.style {
+            IndentStyle::Spaces => " ".repeat(self.config.indent.width as usize * d as usize),
+            IndentStyle::Tabs => "\t".repeat(d as usize),
+        }
+    }
+
+    fn raw(&mut self, s: &str) {
+        if s.is_empty() {
+            return;
+        }
+        self.out.push_str(s);
+        self.at_bol = s.ends_with('\n');
+    }
+
+    fn nl(&mut self) {
+        self.out.push('\n');
+        self.at_bol = true;
+    }
+
+    fn ensure_nl(&mut self) {
+        if !self.at_bol {
+            self.nl();
+        }
+    }
+
+    fn emit_indent(&mut self) {
+        let s = self.indent_str_at(self.depth);
+        self.raw(&s);
+    }
+
+    fn emit_indent_at(&mut self, d: u32) {
+        let s = self.indent_str_at(d);
+        self.raw(&s);
+    }
+
+    fn space(&mut self) {
+        if !self.at_bol && !self.out.ends_with(' ') && !self.out.ends_with('\n') {
+            self.out.push(' ');
+        }
+    }
+
+    fn blank_line(&mut self) {
+        // Ensure exactly one blank line (two consecutive newlines) is present.
+        self.ensure_nl();
+        // Count trailing newlines.
+        let trailing = self.out.chars().rev().take_while(|&c| c == '\n').count();
+        for _ in 0..2usize.saturating_sub(trailing) {
+            self.nl();
+        }
+    }
+
+    // ── Source text ───────────────────────────────────────────────────────────
+
+    fn node_text<'t>(&self, node: Node<'t>) -> &'a str {
+        &self.src[node.start_byte()..node.end_byte()]
+    }
+
+    /// Count blank lines in source between `prev_end` and `start`.
+    fn source_blanks(&self, prev_end: usize, start: usize) -> usize {
+        if start <= prev_end {
+            return 0;
+        }
+        let gap = &self.src[prev_end..start];
+        let newlines = gap.chars().filter(|&c| c == '\n').count();
+        // If the char just before prev_end is already '\n' (e.g. preproc includes
+        // its trailing newline in the node), each '\n' in the gap is a blank line.
+        // Otherwise the first '\n' merely ends the previous line — subtract one.
+        let prev_ends_with_nl = prev_end > 0
+            && self.src.as_bytes().get(prev_end - 1) == Some(&b'\n');
+        let blanks = if prev_ends_with_nl {
+            newlines
+        } else {
+            newlines.saturating_sub(1)
+        };
+        blanks.min(self.config.newlines.max_blank_lines as usize)
+    }
+
+    fn emit_blank_lines(&mut self, n: usize) {
+        self.ensure_nl();
+        for _ in 0..n {
+            self.nl();
+        }
+    }
+
+    // ── Translation unit ──────────────────────────────────────────────────────
+
+    fn emit_translation_unit(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev_end: usize = 0;
+        let mut i = 0;
+
+        while i < children.len() {
+            let child = children[i];
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            let kind = child.kind();
+
+            // Check if the next sibling is a same-line trailing comment.
+            let trailing_comment: Option<Node> = if kind != "comment" && i + 1 < children.len() {
+                let next = children[i + 1];
+                if next.kind() == "comment" {
+                    let stmt_end_line = self.src[..child.end_byte()].lines().count();
+                    let cmt_line = self.src[..next.start_byte()].lines().count();
+                    if stmt_end_line == cmt_line { Some(next) } else { None }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Don't force newline before `;` — it may follow a type body `}` on same line.
+            if kind != ";" {
+                self.ensure_nl();
+                self.emit_blank_lines(blanks);
+            }
+
+            match kind {
+                k if is_preproc(k) => {
+                    self.emit_preproc(child);
+                }
+                "comment" => {
+                    self.emit_comment_standalone(child);
+                }
+                "function_definition" => {
+                    self.emit_indent();
+                    self.emit_function_definition(child);
+                    self.ensure_nl();
+                }
+                "declaration" | "type_definition" => {
+                    self.emit_toplevel_decl(child);
+                    self.ensure_nl();
+                }
+                "enum_specifier" | "struct_specifier" | "union_specifier" => {
+                    // At file scope, these are type declarations (not wrapped in `declaration`).
+                    // The `;` is a separate sibling that follows.
+                    self.emit_indent();
+                    self.emit_expr_node(child);
+                    // Don't call ensure_nl() — the sibling `;` will follow.
+                }
+                "linkage_specification" => {
+                    self.emit_linkage_specification(child);
+                }
+                "namespace_definition" => {
+                    self.emit_indent();
+                    self.emit_namespace_definition(child);
+                }
+                "template_declaration" => {
+                    self.emit_indent();
+                    self.emit_template_declaration(child);
+                }
+                ";" => {
+                    self.raw(";");
+                    // If the `;` has a trailing same-line comment, emit it inline.
+                    if let Some(cmt) = trailing_comment {
+                        self.space();
+                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        prev_end = cmt.end_byte();
+                        i += 2;
+                        self.nl();
+                        continue;
+                    }
+                    self.nl();
+                }
+                _ => {
+                    self.emit_indent();
+                    self.emit_statement(child);
+                    self.ensure_nl();
+                }
+            }
+
+            // For non-`;` nodes with a trailing comment, emit the comment inline
+            // (after the node's own newline was suppressed by ensure_nl).
+            if kind != ";" {
+                if let Some(cmt) = trailing_comment {
+                    // The statement was just emitted; strip the trailing \n and add comment.
+                    if self.out.ends_with('\n') {
+                        self.out.pop();
+                        self.at_bol = false;
+                    }
+                    self.space();
+                    self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                    self.nl();
+                    prev_end = cmt.end_byte();
+                    i += 2;
+                    continue;
+                }
+            }
+
+            prev_end = child.end_byte();
+            i += 1;
+        }
+    }
+
+    // ── Preprocessor ──────────────────────────────────────────────────────────
+
+    fn emit_preproc(&mut self, node: Node) {
+        let text = self.node_text(node).trim_end_matches('\n');
+        self.raw(text);
+        self.nl();
+    }
+
+    fn emit_comment_standalone(&mut self, node: Node) {
+        self.emit_indent();
+        let text = self.node_text(node).trim_end_matches('\n');
+        self.raw(text);
+        self.nl();
+    }
+
+    // ── Function definition ───────────────────────────────────────────────────
+
+    fn emit_function_definition(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        // `= delete;` / `= default;` — emit signature (which includes the clause)
+        // and bail; no brace body follows.
+        let has_specifier_clause = children
+            .iter()
+            .any(|n| matches!(n.kind(), "delete_method_clause" | "default_method_clause"));
+        if has_specifier_clause {
+            let sig_nodes: Vec<Node> = children
+                .iter()
+                .copied()
+                .filter(|n| !matches!(n.kind(), "delete_method_clause" | "default_method_clause"))
+                .collect();
+            self.emit_signature(&sig_nodes);
+            // Emit the clause itself (= delete; / = default;) directly.
+            for child in &children {
+                if matches!(child.kind(), "delete_method_clause" | "default_method_clause") {
+                    let mut csr = child.walk();
+                    // ` = delete;` / ` = default;`
+                    self.space();
+                    self.raw("=");
+                    self.space();
+                    for tok in child.children(&mut csr) {
+                        // Skip `=`; emit only `delete`/`default` and `;`
+                        let t = self.node_text(tok);
+                        if t == "=" { continue; }
+                        if t == ";" {
+                            self.raw(";");
+                        } else {
+                            self.raw(t);
+                        }
+                    }
+                    break;
+                }
+            }
+            self.nl();
+            return;
+        }
+
+        let body_idx = children
+            .iter()
+            .position(|n| n.kind() == "compound_statement");
+
+        let sig_nodes = &children[..body_idx.unwrap_or(children.len())];
+
+        // Caller is responsible for indentation.
+        self.emit_signature(sig_nodes);
+
+        // Replicate funky's fn_brace_newline rule: only move `{` to its own line
+        // when the signature ends with `)`.  If it ends with a trailing qualifier
+        // (const, noexcept, override…) funky treats it as BraceCtx::Other and
+        // keeps the brace inline — matching source style.
+        let sig_ends_with_rparen = sig_nodes.last().map(|&n| {
+            let mut node = n;
+            while node.child_count() > 0 {
+                node = node.child(node.child_count() - 1).unwrap();
+            }
+            node.kind() == ")"
+        }).unwrap_or(false);
+        let fn_brace_newline = self.config.braces.fn_brace_newline && sig_ends_with_rparen;
+
+        // Check if body is empty (compound_statement with no real children).
+        let body_is_empty = body_idx.map(|idx| {
+            let body = children[idx];
+            let mut c = body.walk();
+            body.children(&mut c)
+                .filter(|n| !matches!(n.kind(), "{" | "}"))
+                .count() == 0
+        }).unwrap_or(false);
+
+        if body_is_empty && self.config.braces.collapse_empty_body {
+            if fn_brace_newline {
+                self.ensure_nl();
+                self.emit_indent();
+            } else {
+                self.space();
+            }
+            self.raw("{}");
+            self.nl();
+            return;
+        }
+
+        if fn_brace_newline {
+            self.ensure_nl();
+            self.emit_indent();
+        } else {
+            self.space();
+        }
+        self.raw("{");
+
+        if let Some(idx) = body_idx {
+            let body = children[idx];
+            // When the signature keeps its brace inline (fn_brace_newline=false),
+            // check if the body fits on a single source line.  If so, emit it
+            // inline (matching funky's behaviour for one-liner methods).
+            let inline = !fn_brace_newline
+                && body.start_position().row == body.end_position().row;
+            if inline {
+                self.emit_compound_body_inline(body);
+            } else {
+                self.nl();
+                self.depth += 1;
+                self.decl_block_enter();
+                self.emit_compound_body(body);
+                self.decl_block_exit();
+                self.depth -= 1;
+                self.ensure_nl();
+                self.emit_indent();
+                self.raw("}");
+            }
+        } else {
+            self.ensure_nl();
+            self.emit_indent();
+            self.raw("}");
+        }
+        self.nl();
+    }
+
+    /// Emit a compound_statement body on the current line (no newlines injected).
+    /// Used for one-liner inline method bodies: `bool f() const { return x; }`.
+    /// Replicates funky's `render_inline_init` spacing: space before `;` and `}`.
+    fn emit_compound_body_inline(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") { 1 } else { 0 };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+        for i in start_i..end_i {
+            self.space();
+            self.emit_statement(children[i]);
+            // funky's render_inline_init adds space before `;` (it's not in the
+            // "no space before" exceptions for inline renders).
+            if self.out.ends_with(';') {
+                let pos = self.out.len() - 1;
+                self.out.insert(pos, ' ');
+            }
+        }
+        self.space();
+        self.raw("}");
+    }
+
+    fn emit_signature(&mut self, nodes: &[Node<'_>]) {
+        let mut prev: Option<Node> = None;
+        for &child in nodes {
+            let k = child.kind();
+            match k {
+                k if is_preproc(k) => {
+                    self.ensure_nl();
+                    self.emit_preproc(child);
+                    self.emit_indent();
+                    prev = None;
+                }
+                "comment" => {
+                    self.space();
+                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    prev = Some(child);
+                }
+                "attribute_specifier" | "attribute_declaration"
+                | "ms_declspec_modifier" | "__attribute__" => {
+                    if prev.is_some() {
+                        self.space();
+                    }
+                    self.emit_expr_node(child);
+                    prev = Some(child);
+                }
+                _ => {
+                    // field_initializer_list starts with `:` — no space before it.
+                    if prev.is_some() && !self.at_bol && k != "field_initializer_list" {
+                        self.space();
+                    }
+                    self.emit_expr_node(child);
+                    prev = Some(child);
+                }
+            }
+        }
+    }
+
+    // ── Compound body ─────────────────────────────────────────────────────────
+
+    fn emit_compound_body(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") {
+            1
+        } else {
+            0
+        };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+
+        let mut prev_end = if start_i > 0 {
+            children[start_i - 1].end_byte()
+        } else {
+            node.start_byte()
+        };
+
+        let mut i = start_i;
+        while i < end_i {
+            let child = children[i];
+            let kind = child.kind();
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+
+            // Braceless switch: `switch (cond)` without braces produces an ERROR
+            // node in tree-sitter.  The following case_statement sibling is the
+            // switch body.  To match funky's depth accumulation (indent_switch_case
+            // permanently increments depth for each braceless case), we emit the
+            // switch header, then the case statement, then permanently bump depth.
+            if kind == "ERROR"
+                && is_braceless_switch_error(child)
+                && i + 1 < end_i
+                && children[i + 1].kind() == "case_statement"
+            {
+                // Emit switch header.
+                self.emit_blank_lines(blanks);
+                self.ensure_nl();
+                self.emit_indent();
+                self.emit_braceless_switch_header(child);
+                prev_end = child.end_byte();
+                i += 1;
+
+                // Emit the following case_statement.
+                let case_node = children[i];
+                let case_blanks = self.source_blanks(prev_end, case_node.start_byte());
+                self.emit_blank_lines(case_blanks);
+                self.ensure_nl();
+                self.emit_indent();
+                self.emit_case_statement(case_node);
+                // Permanently raise depth to mirror funky's indent_switch_case
+                // behaviour: the braceless case body stays open until something
+                // closes it (which, for braceless switches, is nothing inside this
+                // compound body — so depth leaks out, matching funky).
+                if self.config.indent.indent_switch_case {
+                    self.depth += 1;
+                }
+                prev_end = case_node.end_byte();
+                i += 1;
+                continue;
+            }
+
+            match kind {
+                k if is_preproc(k) => {
+                    self.emit_blank_lines(blanks);
+                    self.ensure_nl();
+                    self.emit_preproc(child);
+                }
+                "comment" => {
+                    self.emit_blank_lines(blanks);
+                    self.ensure_nl();
+                    self.emit_indent();
+                    let text = self.node_text(child).trim_end_matches('\n');
+                    self.raw(text);
+                    self.nl();
+                }
+                _ => {
+                    // Apply blank_line_after_var_decl_block.
+                    let mut force_blank = false;
+                    if self.decl_block_active && self.decl_block_at_stmt_start {
+                        self.decl_block_at_stmt_start = false;
+                        let is_decl = is_declaration_node(child);
+                        if is_decl {
+                            self.decl_block_saw_decl = true;
+                        } else if self.decl_block_saw_decl {
+                            self.decl_block_active = false;
+                            force_blank = true;
+                        } else {
+                            self.decl_block_active = false;
+                        }
+                    }
+
+                    let emit_blanks = if force_blank { blanks.max(1) } else { blanks };
+                    self.emit_blank_lines(emit_blanks);
+
+                    self.ensure_nl();
+                    // Null statements are emitted at column 0 (funky invariant).
+                    if !is_null_stmt(child) {
+                        self.emit_indent();
+                    }
+                    self.emit_statement(child);
+
+                    // After emitting, prepare for next statement in decl block.
+                    if self.decl_block_active {
+                        self.decl_block_at_stmt_start = true;
+                    }
+                }
+            }
+
+            prev_end = child.end_byte();
+            i += 1;
+        }
+
+        // Preserve any blank line in the source just before the closing `}`.
+        if end_i < children.len() {
+            let closing_brace = children[end_i];
+            let trailing_blanks = self.source_blanks(prev_end, closing_brace.start_byte());
+            self.emit_blank_lines(trailing_blanks);
+        }
+    }
+
+    // ── Statements ────────────────────────────────────────────────────────────
+
+    fn emit_statement(&mut self, node: Node) {
+        match node.kind() {
+            "compound_statement" => {
+                self.raw("{");
+                self.nl();
+                self.depth += 1;
+                self.emit_compound_body(node);
+                self.depth -= 1;
+                self.ensure_nl();
+                self.emit_indent();
+                self.raw("}");
+            }
+            "if_statement" => self.emit_if_statement(node),
+            "for_statement" => self.emit_for_statement(node),
+            "while_statement" => self.emit_while_statement(node),
+            "do_statement" => self.emit_do_statement(node),
+            "switch_statement" => self.emit_switch_statement(node),
+            "case_statement" => self.emit_case_statement(node),
+            "return_statement" => self.emit_return_statement(node),
+            "break_statement" => { self.raw("break"); self.raw(";"); }
+            "continue_statement" => { self.raw("continue"); self.raw(";"); }
+            "goto_statement" => self.emit_goto_statement(node),
+            "labeled_statement" => self.emit_labeled_statement(node),
+            "expression_statement" => self.emit_expression_statement(node),
+            "declaration" => self.emit_decl_node(node),
+            "type_definition" => self.emit_typedef_node(node),
+            "function_definition" => self.emit_function_definition(node),
+            "template_declaration" => {
+                self.emit_template_declaration(node);
+            }
+            "namespace_definition" => {
+                self.emit_namespace_definition(node);
+            }
+            "class_specifier" | "struct_specifier" => {
+                self.emit_struct_like(node);
+                self.raw(";");
+            }
+            "try_statement" => self.emit_try_statement(node),
+            k if is_preproc(k) => self.emit_preproc(node),
+            "comment" => {
+                let text = self.node_text(node).trim_end_matches('\n');
+                self.raw(text);
+            }
+            _ => {
+                self.emit_expr_node(node);
+            }
+        }
+    }
+
+    fn emit_return_statement(&mut self, node: Node) {
+        self.raw("return");
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "return" => {}
+                ";" => { self.raw(";"); }
+                _ => {
+                    self.space();
+                    self.emit_expr_node(child);
+                }
+            }
+        }
+    }
+
+    fn emit_goto_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let mut first_content = true;
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "goto" => { self.raw("goto"); first_content = false; }
+                ";" => { self.raw(";"); }
+                _ => {
+                    if !first_content { self.space(); }
+                    self.raw(self.node_text(child));
+                    first_content = false;
+                }
+            }
+        }
+    }
+
+    fn emit_labeled_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        // Labels go at reduced indentation.
+        let label_depth = if self.config.indent.indent_goto_labels {
+            self.depth
+        } else {
+            // Labels go at the enclosing block level (not the statement level).
+            self.depth.saturating_sub(1)
+        };
+
+        // Strip current-line indentation and re-emit at label depth.
+        let last_nl = self.out.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        if self.out[last_nl..].chars().all(|c| c == ' ' || c == '\t') {
+            self.out.truncate(last_nl);
+            self.at_bol = true;
+        }
+        self.emit_indent_at(label_depth);
+
+        let mut i = 0;
+        if i < children.len() {
+            // Label name
+            self.raw(self.node_text(children[i]));
+            i += 1;
+        }
+        if i < children.len() && children[i].kind() == ":" {
+            self.raw(":");
+            i += 1;
+        }
+
+        if i < children.len() {
+            let stmt = children[i];
+            // If the labeled statement itself is another labeled_statement,
+            // or if it's just `;`, go to next line.
+            if stmt.kind() == "labeled_statement" {
+                self.nl();
+                self.emit_indent();
+                self.emit_statement(stmt);
+            } else if stmt.kind() == ";" {
+                self.nl();
+            } else {
+                self.nl();
+                self.emit_indent();
+                self.emit_statement(stmt);
+            }
+        } else {
+            self.nl();
+        }
+    }
+
+    fn emit_expression_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        if children.is_empty() {
+            self.raw(";");
+            return;
+        }
+
+        // Null statement?
+        if children.len() == 1 && children[0].kind() == ";" {
+            self.raw(";");
+            return;
+        }
+
+        for child in &children {
+            match child.kind() {
+                ";" => self.raw(";"),
+                _ => self.emit_expr_node(*child),
+            }
+        }
+    }
+
+    // ── If / else ─────────────────────────────────────────────────────────────
+
+    fn emit_if_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        // if
+        self.raw("if");
+
+        let mut i = 1; // skip "if"
+
+        // condition: C uses parenthesized_expression, C++ uses condition_clause
+        while i < children.len()
+            && !matches!(children[i].kind(), "parenthesized_expression" | "condition_clause")
+        {
+            i += 1;
+        }
+        if i < children.len() {
+            let cond = children[i];
+            if self.config.spacing.space_before_keyword_paren {
+                self.space();
+            }
+            // condition_clause wraps its own parens; emit it directly.
+            // parenthesized_expression also wraps parens; emit it directly.
+            self.emit_expr_node(cond);
+            i += 1;
+        }
+
+        // body (first child that is not else_clause)
+        while i < children.len() && children[i].kind() == "else_clause" {
+            i += 1;
+        }
+
+        if i < children.len() && children[i].kind() != "else_clause" {
+            let body = children[i];
+            let inject = self.config.braces.add_braces_to_if;
+            self.emit_control_body(body, inject);
+            i += 1;
+        }
+
+        // else clause
+        while i < children.len() {
+            let child = children[i];
+            if child.kind() == "else_clause" {
+                self.emit_else_clause(child);
+            }
+            i += 1;
+        }
+    }
+
+    fn emit_else_clause(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let body_idx = children.iter().position(|n| n.kind() != "else").unwrap_or(1);
+        let body = children.get(body_idx);
+
+        if self.config.braces.cuddle_else {
+            self.space();
+        } else {
+            self.ensure_nl();
+            self.emit_indent();
+        }
+        self.raw("else");
+
+        if let Some(&b) = body {
+            if b.kind() == "if_statement" {
+                self.space();
+                self.emit_if_statement(b);
+            } else {
+                let inject = self.config.braces.add_braces_to_if;
+                self.emit_control_body(b, inject);
+            }
+        }
+    }
+
+    // ── For / while / do ──────────────────────────────────────────────────────
+
+    fn emit_for_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        self.raw("for");
+        if self.config.spacing.space_before_keyword_paren {
+            self.space();
+        }
+        self.raw("(");
+
+        let mut i = 0;
+        // Skip "for" and "("
+        while i < children.len() && children[i].kind() == "for" { i += 1; }
+        while i < children.len() && children[i].kind() == "(" { i += 1; }
+
+        // Collect items until ")"
+        let mut in_for_header = true;
+        let mut body_node: Option<Node> = None;
+        let mut after_paren = false;
+
+        while i < children.len() {
+            let child = children[i];
+            if after_paren {
+                body_node = Some(child);
+                break;
+            }
+            match child.kind() {
+                ")" => {
+                    self.raw(")");
+                    after_paren = true;
+                }
+                ";" => {
+                    self.raw(";");
+                    // Space after `;` in for-header unless next is `)`.
+                    if i + 1 < children.len() && children[i + 1].kind() != ")" {
+                        self.space();
+                    }
+                }
+                _ if in_for_header => {
+                    // Before emitting: if previous output ends with `;`, add space
+                    // (happens when init is a declaration that includes its own `;`).
+                    if self.out.ends_with(';') {
+                        self.space();
+                    }
+                    self.emit_expr_node(child);
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        if let Some(body) = body_node {
+            let inject = self.config.braces.add_braces_to_for;
+            self.emit_control_body(body, inject);
+        }
+        let _ = in_for_header;
+    }
+
+    fn emit_while_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        self.raw("while");
+        if self.config.spacing.space_before_keyword_paren {
+            self.space();
+        }
+
+        let mut i = 0;
+        while i < children.len() && children[i].kind() == "while" { i += 1; }
+
+        if i < children.len()
+            && matches!(children[i].kind(), "parenthesized_expression" | "condition_clause")
+        {
+            self.emit_expr_node(children[i]);
+            i += 1;
+        }
+
+        if i < children.len() {
+            let inject = self.config.braces.add_braces_to_while;
+            self.emit_control_body(children[i], inject);
+        }
+    }
+
+    fn emit_do_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        self.raw("do");
+
+        let mut body_opt: Option<Node> = None;
+        let mut cond_opt: Option<Node> = None;
+
+        let mut i = 0;
+        while i < children.len() && children[i].kind() == "do" { i += 1; }
+
+        // body
+        if i < children.len() && children[i].kind() != "while" {
+            body_opt = Some(children[i]);
+            i += 1;
+        }
+        // while
+        while i < children.len() && children[i].kind() == "while" { i += 1; }
+        // condition
+        if i < children.len()
+            && matches!(children[i].kind(), "parenthesized_expression" | "condition_clause")
+        {
+            cond_opt = Some(children[i]);
+            i += 1;
+        }
+        let _ = i;
+
+        // Emit body
+        if let Some(body) = body_opt {
+            if body.kind() == "compound_statement" {
+                self.space();
+                self.raw("{");
+                self.nl();
+                self.depth += 1;
+                self.emit_compound_body(body);
+                self.depth -= 1;
+                self.ensure_nl();
+                self.emit_indent();
+                self.raw("}");
+                self.space();
+            } else {
+                // No brace injection for do-while bodies; funky keeps body at same depth.
+                self.nl();
+                self.emit_indent();
+                self.emit_statement(body);
+                self.ensure_nl();
+                self.emit_indent();
+            }
+        }
+
+        self.raw("while");
+        if self.config.spacing.space_before_keyword_paren {
+            self.space();
+        }
+        if let Some(cond) = cond_opt {
+            self.emit_expr_node(cond);
+        }
+        self.raw(";");
+    }
+
+    // ── Switch / case ─────────────────────────────────────────────────────────
+
+    fn emit_switch_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        self.raw("switch");
+        if self.config.spacing.space_before_keyword_paren {
+            self.space();
+        }
+
+        let mut i = 0;
+        while i < children.len() && children[i].kind() == "switch" { i += 1; }
+
+        if i < children.len()
+            && matches!(children[i].kind(), "parenthesized_expression" | "condition_clause")
+        {
+            self.emit_expr_node(children[i]);
+            i += 1;
+        }
+
+        // Switch body is always a compound_statement; treat it like KR style (same line brace).
+        if i < children.len() && children[i].kind() == "compound_statement" {
+            self.space();
+            self.raw("{");
+            self.nl();
+            self.depth += 1;
+            self.emit_switch_compound_body(children[i]);
+            self.depth -= 1;
+            self.ensure_nl();
+            self.emit_indent();
+            self.raw("}");
+        }
+    }
+
+    /// Emit `switch (cond)` header for a braceless switch (tree-sitter ERROR node).
+    fn emit_braceless_switch_header(&mut self, node: Node) {
+        self.raw("switch");
+        if self.config.spacing.space_before_keyword_paren {
+            self.space();
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "parenthesized_expression" {
+                self.emit_expr_node(child);
+                break;
+            }
+        }
+    }
+
+    fn emit_switch_compound_body(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") { 1 } else { 0 };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+
+        let mut prev_end = if start_i > 0 {
+            children[0].end_byte()
+        } else {
+            node.start_byte()
+        };
+
+        for i in start_i..end_i {
+            let child = children[i];
+            let kind = child.kind();
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+
+            self.emit_blank_lines(blanks);
+
+            match kind {
+                "case_statement" => {
+                    self.ensure_nl();
+                    // indent_switch_case=true: case at same level as switch body (self.depth)
+                    // indent_switch_case=false: case at one level above body (self.depth-1)
+                    if self.config.indent.indent_switch_case {
+                        self.emit_indent();
+                    } else {
+                        self.emit_indent_at(self.depth.saturating_sub(1));
+                    }
+                    self.emit_case_statement(child);
+                }
+                k if is_preproc(k) => {
+                    self.ensure_nl();
+                    self.emit_preproc(child);
+                }
+                "comment" => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    let text = self.node_text(child).trim_end_matches('\n');
+                    self.raw(text);
+                    self.nl();
+                }
+                _ => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.emit_statement(child);
+                }
+            }
+            prev_end = child.end_byte();
+        }
+    }
+
+    fn emit_case_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let mut i = 0;
+        match children.get(i).map(|n| n.kind()) {
+            Some("case") => {
+                self.raw("case");
+                i += 1;
+                if i < children.len() && children[i].kind() != ":" {
+                    self.space();
+                    self.emit_expr_node(children[i]);
+                    i += 1;
+                }
+            }
+            Some("default") => {
+                self.raw("default");
+                i += 1;
+            }
+            _ => {}
+        }
+
+        if i < children.len() && children[i].kind() == ":" {
+            self.raw(":");
+            i += 1;
+        }
+
+        let mut prev_end = children
+            .get(i.saturating_sub(1))
+            .map(|n| n.end_byte())
+            .unwrap_or(node.start_byte());
+
+        // Case body is indented one level deeper than the case label.
+        self.depth += 1;
+        while i < children.len() {
+            let child = children[i];
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            self.emit_blank_lines(blanks);
+            self.ensure_nl();
+            // Null statements are at column 0 (funky invariant).
+            if !is_null_stmt(child) {
+                self.emit_indent();
+            }
+            self.emit_statement(child);
+            prev_end = child.end_byte();
+            i += 1;
+        }
+        self.depth -= 1;
+    }
+
+    // ── Control body (with optional brace injection) ──────────────────────────
+
+    fn emit_control_body(&mut self, node: Node, inject: bool) {
+        match node.kind() {
+            "compound_statement" => {
+                self.space();
+                self.raw("{");
+                self.nl();
+                self.depth += 1;
+                self.emit_compound_body(node);
+                self.depth -= 1;
+                self.ensure_nl();
+                self.emit_indent();
+                self.raw("}");
+            }
+            _ if is_null_stmt(node) => {
+                // `if (x)\n;` — funky emits `;` at column 0 (no indent).
+                self.nl();
+                self.raw(";");
+            }
+            _ => {
+                if inject && should_inject(node) {
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_indent();
+                    self.emit_statement(node);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                } else {
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_indent();
+                    self.emit_statement(node);
+                    self.depth -= 1;
+                }
+            }
+        }
+    }
+
+    // ── Top-level declarations ────────────────────────────────────────────────
+
+    fn emit_toplevel_decl(&mut self, node: Node) {
+        self.emit_indent();
+        match node.kind() {
+            "declaration" => {
+                self.emit_decl_node(node);
+                self.nl();
+            }
+            "type_definition" => {
+                self.emit_typedef_node(node);
+                self.nl();
+            }
+            _ => {
+                self.emit_expr_node(node);
+                self.nl();
+            }
+        }
+    }
+
+    fn emit_linkage_specification(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev_end = node.start_byte();
+
+        self.emit_indent();
+        let mut i = 0;
+        while i < children.len() {
+            let child = children[i];
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            self.emit_blank_lines(blanks);
+
+            match child.kind() {
+                "extern" => { self.raw("extern"); }
+                "string_literal" | "raw_string_literal" => {
+                    self.space();
+                    self.emit_expr_node(child);
+                }
+                "declaration_list" | "compound_statement" => {
+                    match self.config.braces.extern_c_brace {
+                        crate::config::ExternCBrace::ForceSameLine => { self.space(); }
+                        _ => { self.nl(); self.emit_indent(); }
+                    }
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_compound_body(child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                    self.nl();
+                    return;
+                }
+                _ => {
+                    self.space();
+                    self.emit_statement(child);
+                    return;
+                }
+            }
+            prev_end = child.end_byte();
+            i += 1;
+        }
+        self.nl();
+    }
+
+    // ── C++ namespace / class / template ─────────────────────────────────────
+
+    fn emit_namespace_definition(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        for child in &children {
+            match child.kind() {
+                "namespace" => { self.raw("namespace"); }
+                "identifier" | "namespace_identifier" => {
+                    self.space();
+                    self.raw(self.node_text(*child));
+                }
+                "declaration_list" | "compound_statement" => {
+                    if self.config.braces.fn_brace_newline {
+                        self.nl();
+                        self.emit_indent();
+                    } else {
+                        self.space();
+                    }
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_compound_body(*child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                    self.nl();
+                    return;
+                }
+                _ => {
+                    self.space();
+                    self.emit_expr_node(*child);
+                }
+            }
+        }
+        self.nl();
+    }
+
+    fn emit_template_declaration(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let mut i = 0;
+
+        while i < children.len() {
+            let child = children[i];
+            match child.kind() {
+                "template" => {
+                    self.raw("template");
+                    i += 1;
+                }
+                "template_parameter_list" => {
+                    // No space between `template` and `<` (ws_before handles inner spacing).
+                    self.emit_expr_node(child);
+                    i += 1;
+                }
+                "function_definition" => {
+                    self.nl();
+                    self.emit_indent();
+                    self.emit_function_definition(child);
+                    self.ensure_nl();
+                    return;
+                }
+                "class_specifier" | "struct_specifier" => {
+                    self.nl();
+                    self.emit_indent();
+                    self.emit_class_like(child);
+                    self.raw(";");
+                    self.nl();
+                    return;
+                }
+                "declaration" => {
+                    self.nl();
+                    self.emit_indent();
+                    self.emit_decl_node(child);
+                    self.nl();
+                    return;
+                }
+                _ => {
+                    self.space();
+                    self.emit_expr_node(child);
+                    i += 1;
+                }
+            }
+        }
+        self.nl();
+    }
+
+    fn emit_class_like(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev_end = node.start_byte();
+
+        for child in &children {
+            // No emit_blank_lines here — keywords are inline, body handles its own newlines.
+            match child.kind() {
+                "class" | "struct" | "union" => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.raw(child.kind());
+                }
+                "type_identifier" | "identifier" => {
+                    if !self.at_bol { self.space(); }
+                    self.raw(self.node_text(*child));
+                }
+                "base_class_clause" => {
+                    self.space();
+                    self.emit_expr_node(*child);
+                }
+                "field_declaration_list" | "declaration_list" => {
+                    // Class/struct bodies always use same-line brace (KR).
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_class_body(*child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
+                _ => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.emit_expr_node(*child);
+                }
+            }
+        }
+    }
+
+    fn emit_class_body(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") { 1 } else { 0 };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+        let mut prev_end = if start_i > 0 {
+            children[0].end_byte()
+        } else {
+            node.start_byte()
+        };
+
+        let mut i = start_i;
+        while i < end_i {
+            let child = children[i];
+            let kind = child.kind();
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            self.emit_blank_lines(blanks);
+
+            match kind {
+                k if is_preproc(k) => {
+                    self.ensure_nl();
+                    self.emit_preproc(child);
+                }
+                "comment" => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.nl();
+                }
+                "access_specifier" => {
+                    // access_specifier contains just the keyword; ":" is the next sibling.
+                    self.ensure_nl();
+                    if self.depth > 0 {
+                        self.emit_indent_at(self.depth - 1);
+                    }
+                    self.raw(self.node_text(child));
+                    // Consume the ":" sibling if present.
+                    if i + 1 < end_i && children[i + 1].kind() == ":" {
+                        self.raw(":");
+                        i += 1;
+                        prev_end = children[i].end_byte();
+                    }
+                    self.nl();
+                }
+                ":" => {
+                    // Standalone ":" after access_specifier — should have been consumed above.
+                    // Emit defensively.
+                    self.raw(":");
+                    self.nl();
+                }
+                "function_definition" => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.emit_function_definition(child);
+                    self.ensure_nl();
+                }
+                _ => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.emit_class_member(child);
+                    self.nl();
+                }
+            }
+            prev_end = child.end_byte();
+            i += 1;
+        }
+    }
+
+    fn emit_access_specifier(&mut self, node: Node) {
+        let text = self.node_text(node);
+        self.raw(text.trim_end_matches(':'));
+        self.raw(":");
+    }
+
+    fn emit_class_member(&mut self, node: Node) {
+        match node.kind() {
+            "declaration" => self.emit_decl_node(node),
+            "type_definition" => self.emit_typedef_node(node),
+            "field_declaration" => self.emit_field_declaration(node),
+            _ => {
+                let mut leaves = vec![];
+                collect_leaves(node, &mut leaves);
+                self.emit_leaves(&leaves);
+            }
+        }
+    }
+
+    fn emit_field_declaration(&mut self, node: Node) {
+        let mut leaves = vec![];
+        collect_leaves(node, &mut leaves);
+        self.emit_leaves(&leaves);
+    }
+
+    fn emit_try_statement(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev_end = node.start_byte();
+
+        for child in &children {
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            self.emit_blank_lines(blanks);
+
+            match child.kind() {
+                "try" => { self.raw("try"); }
+                "compound_statement" => {
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_compound_body(*child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
+                "catch_clause" => {
+                    self.emit_catch_clause(*child);
+                }
+                _ => {
+                    self.space();
+                    self.emit_expr_node(*child);
+                }
+            }
+            prev_end = child.end_byte();
+        }
+    }
+
+    fn emit_catch_clause(&mut self, node: Node) {
+        if self.config.braces.cuddle_catch {
+            self.space();
+        } else {
+            self.nl();
+            self.emit_indent();
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "catch" => { self.raw("catch"); }
+                "parameter_list" | "parenthesized_expression" => {
+                    if self.config.spacing.space_before_keyword_paren {
+                        self.space();
+                    }
+                    self.emit_expr_node(child);
+                }
+                "compound_statement" => {
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_compound_body(child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
+                _ => {
+                    self.space();
+                    self.emit_expr_node(child);
+                }
+            }
+        }
+    }
+
+    // ── Declaration / typedef ─────────────────────────────────────────────────
+
+    fn emit_decl_node(&mut self, node: Node) {
+        self.emit_decl_children(node);
+    }
+
+    fn emit_typedef_node(&mut self, node: Node) {
+        self.emit_decl_children(node);
+    }
+
+    fn emit_decl_children(&mut self, node: Node) {
+        // Walk the declaration's children, expanding struct/union/enum bodies.
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev: Option<Node> = None;
+
+        for &child in &children {
+            let k = child.kind();
+            match k {
+                "struct_specifier" | "union_specifier" => {
+                    if prev.is_some() && !self.at_bol {
+                        self.space();
+                    }
+                    self.emit_struct_like(child);
+                }
+                "enum_specifier" => {
+                    if prev.is_some() && !self.at_bol {
+                        self.space();
+                    }
+                    self.emit_enum_like(child);
+                }
+                "class_specifier" => {
+                    if prev.is_some() && !self.at_bol {
+                        self.space();
+                    }
+                    self.emit_class_like(child);
+                }
+                ";" => {
+                    self.raw(";");
+                }
+                "init_declarator" => {
+                    // Emit init_declarator: declarator part + `=` + initializer.
+                    if prev.is_some() && !self.at_bol {
+                        let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
+                        if prev_kind != "," && !matches!(prev_kind,
+                            "pointer_declarator" | "abstract_pointer_declarator"
+                            | "reference_declarator")
+                        {
+                            self.space();
+                        }
+                    }
+                    self.emit_init_declarator(child);
+                }
+                _ => {
+                    if prev.is_some() && !self.at_bol {
+                        let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
+                        let needs_space = k != "," && !matches!(prev_kind,
+                            "pointer_declarator" | "abstract_pointer_declarator"
+                            | "reference_declarator");
+                        if needs_space {
+                            self.space();
+                        }
+                    }
+                    // Inline struct as part of declaration (no body).
+                    // Otherwise emit leaves.
+                    let mut leaves = vec![];
+                    collect_leaves(child, &mut leaves);
+                    self.emit_leaves(&leaves);
+                }
+            }
+            prev = Some(child);
+        }
+    }
+
+    fn emit_init_declarator(&mut self, node: Node) {
+        // init_declarator: declarator `=` value
+        // The value might be an initializer_list that needs expansion.
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let mut prev: Option<Node> = None;
+        for &child in &children {
+            let ck = child.kind();
+            if ck == "initializer_list" {
+                self.space();
+                self.emit_initializer_list(child);
+            } else if ck == "=" {
+                self.space();
+                self.raw("=");
+            } else {
+                if prev.is_some() && !self.at_bol {
+                    self.space();
+                }
+                let mut leaves = vec![];
+                collect_leaves(child, &mut leaves);
+                self.emit_leaves(&leaves);
+            }
+            prev = Some(child);
+        }
+    }
+
+    // ── Struct / union / enum bodies ──────────────────────────────────────────
+
+    fn emit_struct_like(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        for child in &children {
+            // No blank-line logic here; keywords are inline, bodies handle their own.
+            match child.kind() {
+                "struct" | "union" => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.raw(child.kind());
+                }
+                "type_identifier" | "identifier" => {
+                    if !self.at_bol { self.space(); }
+                    self.raw(self.node_text(*child));
+                }
+                "field_declaration_list" => {
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_field_list(*child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
+                _ => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.emit_expr_node(*child);
+                }
+            }
+        }
+    }
+
+    fn emit_enum_like(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        for child in &children {
+            match child.kind() {
+                "enum" => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.raw("enum");
+                }
+                "type_identifier" | "identifier" => {
+                    if !self.at_bol { self.space(); }
+                    self.raw(self.node_text(*child));
+                }
+                "enumerator_list" => {
+                    self.space();
+                    self.raw("{");
+                    self.nl();
+                    self.depth += 1;
+                    self.emit_enumerator_list(*child);
+                    self.depth -= 1;
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw("}");
+                }
+                _ => {
+                    if !self.at_bol && !self.out.ends_with(' ') {
+                        self.space();
+                    }
+                    self.emit_expr_node(*child);
+                }
+            }
+        }
+    }
+
+    /// Render `node` via `emit_decl_children` to a temp buffer and return the
+    /// number of bytes on the last (and only expected) output line.
+    fn measure_decl_render(&mut self, node: Node) -> usize {
+        let saved_out = std::mem::take(&mut self.out);
+        let saved_bol = self.at_bol;
+        self.at_bol = false;
+        self.emit_decl_children(node);
+        let rendered = std::mem::replace(&mut self.out, saved_out);
+        self.at_bol = saved_bol;
+        // Return chars on the last line (handles unlikely multi-line case).
+        rendered.len() - rendered.rfind('\n').map(|p| p + 1).unwrap_or(0)
+    }
+
+    fn emit_field_list(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") { 1 } else { 0 };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+        let mut prev_end = if start_i > 0 {
+            children[0].end_byte()
+        } else {
+            node.start_byte()
+        };
+
+        // Pre-scan: find (field_i, comment_i) pairs for same-line trailing comments.
+        let mut same_line_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in start_i..end_i {
+            let child = children[i];
+            if child.kind() == "comment" { continue; }
+            if i + 1 < end_i && children[i + 1].kind() == "comment" {
+                let field_end_line = self.src[..child.end_byte()].lines().count();
+                let cmt_line = self.src[..children[i + 1].start_byte()].lines().count();
+                if field_end_line == cmt_line {
+                    same_line_pairs.push((i, i + 1));
+                }
+            }
+        }
+
+        // Compute alignment column: indent + max rendered field width + 2.
+        let align_col = if !same_line_pairs.is_empty() {
+            let indent = self.depth as usize * self.config.indent.width as usize;
+            let max_w = same_line_pairs.iter().map(|&(fi, _)| {
+                self.measure_decl_render(children[fi])
+            }).max().unwrap_or(0);
+            indent + max_w + 2
+        } else {
+            0
+        };
+        let has_trailing_cmt: std::collections::HashSet<usize> =
+            same_line_pairs.iter().map(|&(fi, _)| fi).collect();
+
+        let mut i = start_i;
+        while i < end_i {
+            let child = children[i];
+            let kind = child.kind();
+            let blanks = self.source_blanks(prev_end, child.start_byte());
+            self.emit_blank_lines(blanks);
+
+            match kind {
+                "comment" => {
+                    // Stand-alone comment (not consumed as a trailing inline comment).
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.nl();
+                }
+                k if is_preproc(k) => {
+                    self.ensure_nl();
+                    self.emit_preproc(child);
+                }
+                ";" => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw(";");
+                    self.nl();
+                }
+                "ERROR" => {
+                    // Bare `;` error nodes (anonymous field) at column 0.
+                    let text = self.node_text(child).trim();
+                    if text == ";" {
+                        self.ensure_nl();
+                        self.raw(";");
+                        self.nl();
+                    } else {
+                        self.ensure_nl();
+                        self.emit_indent();
+                        self.emit_decl_children(child);
+                        self.nl();
+                    }
+                }
+                _ => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.emit_decl_children(child);
+                    if has_trailing_cmt.contains(&i) {
+                        // Align the trailing comment to `align_col`.
+                        let cur_col = self.out.len()
+                            - self.out.rfind('\n').map(|p| p + 1).unwrap_or(0);
+                        let pad = if cur_col < align_col { align_col - cur_col } else { 1 };
+                        for _ in 0..pad { self.out.push(' '); }
+                        self.at_bol = false;
+                        let cmt = children[i + 1];
+                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        prev_end = cmt.end_byte();
+                        i += 2;
+                    } else {
+                        prev_end = child.end_byte();
+                        i += 1;
+                    }
+                    self.nl();
+                    continue;
+                }
+            }
+            prev_end = child.end_byte();
+            i += 1;
+        }
+    }
+
+    fn emit_enumerator_list(&mut self, node: Node) {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        let start_i = if children.first().map(|n| n.kind()) == Some("{") { 1 } else { 0 };
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+
+        // Group enumerators by source row (preserves source line structure).
+        let mut prev_row: Option<usize> = None;
+        let mut prev_end = if start_i > 0 { children[0].end_byte() } else { node.start_byte() };
+        let mut at_line_start = true;
+
+        for i in start_i..end_i {
+            let child = children[i];
+            let kind = child.kind();
+
+            match kind {
+                "," => {
+                    self.raw(",");
+                }
+                "comment" => {
+                    self.ensure_nl();
+                    self.emit_indent();
+                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.nl();
+                    at_line_start = true;
+                    prev_row = None;
+                }
+                _ => {
+                    let blanks = self.source_blanks(prev_end, child.start_byte());
+                    let row = child.start_position().row;
+                    let same_row = prev_row.map(|r| r == row).unwrap_or(false);
+
+                    if !same_row {
+                        self.emit_blank_lines(blanks);
+                        self.ensure_nl();
+                        self.emit_indent();
+                        at_line_start = false;
+                    } else {
+                        // Same source row: keep on same output line after `,`.
+                        self.space();
+                    }
+
+                    let mut leaves = vec![];
+                    collect_leaves(child, &mut leaves);
+                    self.emit_leaves(&leaves);
+                    prev_row = Some(row);
+                }
+            }
+            prev_end = child.end_byte();
+        }
+        self.ensure_nl();
+    }
+
+    // ── Expression formatting (leaf walker) ───────────────────────────────────
+
+    fn emit_expr_node(&mut self, node: Node) {
+        match node.kind() {
+            "struct_specifier" => self.emit_struct_like(node),
+            "union_specifier" => self.emit_struct_like(node),
+            "enum_specifier" => self.emit_enum_like(node),
+            "class_specifier" => self.emit_class_like(node),
+            "initializer_list" => self.emit_initializer_list(node),
+            _ => {
+                let mut leaves = vec![];
+                collect_leaves(node, &mut leaves);
+                self.emit_leaves(&leaves);
+            }
+        }
+    }
+
+    fn emit_initializer_list(&mut self, node: Node) {
+        let src_range = &self.src[node.start_byte()..node.end_byte()];
+        let has_newline = src_range.contains('\n');
+
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+
+        // Small/flat inline initializer.
+        if !has_newline {
+            let mut leaves = vec![];
+            collect_leaves(node, &mut leaves);
+            self.emit_leaves(&leaves);
+            return;
+        }
+
+        // Multi-line: preserve source line groupings.
+        // Elements on the same source row are kept on the same output line.
+        self.raw("{");
+        self.nl();
+        self.depth += 1;
+
+        let start_i = 1; // skip `{`
+        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
+            children.len() - 1
+        } else {
+            children.len()
+        };
+
+        // Collect (element, had_trailing_comma) pairs grouped by source row.
+        // Skip `,` separators; track which elements are followed by commas.
+        struct Elem<'t> { node: Node<'t>, row: usize, has_comma: bool }
+        let mut elems: Vec<Elem> = vec![];
+        for i in start_i..end_i {
+            let child = children[i];
+            if child.kind() == "," {
+                if let Some(last) = elems.last_mut() {
+                    last.has_comma = true;
+                }
+                continue;
+            }
+            let row = child.start_position().row;
+            elems.push(Elem { node: child, row, has_comma: false });
+        }
+
+        let mut row_start = true;
+        let mut prev_row: Option<usize> = None;
+        let last_has_comma = elems.last().map(|e| e.has_comma).unwrap_or(false);
+
+        for elem in &elems {
+            if prev_row.map(|r| r != elem.row).unwrap_or(false) {
+                // New source row: end previous line and start new one.
+                self.raw(",");
+                self.nl();
+                row_start = true;
+            }
+            if row_start {
+                self.emit_indent();
+                row_start = false;
+            } else {
+                self.raw(",");
+                self.space();
+            }
+            self.emit_expr_node(elem.node);
+            prev_row = Some(elem.row);
+        }
+        // Trailing comma after last element only if source had one.
+        if !elems.is_empty() {
+            if last_has_comma {
+                self.raw(",");
+            }
+            self.nl();
+        }
+
+        self.depth -= 1;
+        self.emit_indent();
+        self.raw("}");
+    }
+
+    fn emit_leaves<'t>(&mut self, leaves: &[Node<'t>]) {
+        for (i, &leaf) in leaves.iter().enumerate() {
+            let prev = if i > 0 { Some(leaves[i - 1]) } else { None };
+            let ws = self.ws_before(leaf, prev);
+            match ws {
+                Ws::None => {}
+                Ws::Space => self.space(),
+            }
+            let text = self.node_text(leaf);
+            self.raw(text);
+        }
+    }
+
+    fn ws_before<'t>(&self, node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
+        let kind = node.kind();
+        let text = self.node_text(node);
+        let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
+        let prev_text = prev.map(|n| self.node_text(n)).unwrap_or("");
+
+        // First token — no space.
+        if prev_kind.is_empty() {
+            return Ws::None;
+        }
+
+        // Space between consecutive subscript designators `] [` (e.g. `[1] [2]`).
+        if prev_kind == "]" && kind == "[" {
+            // Preserve source spacing for multi-dimensional subscript designators.
+            let gap_start = prev.map(|n| n.end_byte()).unwrap_or(0);
+            return if self.src.as_bytes().get(gap_start) == Some(&b' ') {
+                Ws::Space
+            } else {
+                Ws::None
+            };
+        }
+
+        // Never space after these openers (except initializer_list `{`).
+        match prev_kind {
+            "(" => return Ws::None,
+            "{" => {
+                let in_init = prev.and_then(|n| n.parent())
+                    .map(|p| p.kind() == "initializer_list")
+                    .unwrap_or(false);
+                return if in_init { Ws::Space } else { Ws::None };
+            }
+            "->" | "." | "::" => return Ws::None,
+            _ => {}
+        }
+
+        // Space before `}` in initializer_list.
+        if kind == "}" {
+            let in_init = node.parent()
+                .map(|p| p.kind() == "initializer_list")
+                .unwrap_or(false);
+            if in_init {
+                return Ws::Space;
+            }
+            return Ws::None;
+        }
+
+        // `operator=` / `operator()` — no space inside operator_name, and
+        // no space between the last symbol of operator_name and the `(` that
+        // follows it as a sibling in function_declarator.
+        if prev_kind == "operator"
+            && prev.and_then(|n| n.parent()).map(|p| p.kind()) == Some("operator_name")
+        {
+            return Ws::None;
+        }
+        if kind == "("
+            && prev.and_then(|n| n.parent()).map(|p| p.kind()) == Some("operator_name")
+        {
+            return Ws::None;
+        }
+
+        // No space before these closers/separators.
+        match kind {
+            ")" | ";" => return Ws::None,
+            "::" => return Ws::None,
+            "," => return Ws::None,
+            "." | "->" => {
+                // Allow space before `.` when it's a field_designator (`.x = val` in initializers).
+                let is_designator = node.parent()
+                    .map(|p| p.kind() == "field_designator")
+                    .unwrap_or(false);
+                if !is_designator {
+                    return Ws::None;
+                }
+                // Fall through to normal spacing rules (comma → space).
+            }
+            _ => {}
+        }
+
+        // space_inside_brackets handling for `[` and `]`.
+        if prev_kind == "[" {
+            return match self.config.spacing.space_inside_brackets {
+                SpaceOption::Add => Ws::Space,
+                SpaceOption::Remove => Ws::None,
+                SpaceOption::Preserve => {
+                    // Check if source had a space after `[`.
+                    let gap_start = prev.map(|n| n.end_byte()).unwrap_or(0);
+                    if self.src.as_bytes().get(gap_start) == Some(&b' ') {
+                        Ws::Space
+                    } else {
+                        Ws::None
+                    }
+                }
+            };
+        }
+        if kind == "]" {
+            return match self.config.spacing.space_inside_brackets {
+                SpaceOption::Add => Ws::Space,
+                SpaceOption::Remove => Ws::None,
+                SpaceOption::Preserve => {
+                    let gap_start = prev.map(|n| n.end_byte()).unwrap_or(0);
+                    if self.src.as_bytes().get(gap_start) == Some(&b' ') {
+                        Ws::Space
+                    } else {
+                        Ws::None
+                    }
+                }
+            };
+        }
+
+        // Suffix `++`/`--`: no space before.
+        if matches!(kind, "++" | "--") && is_suffix(node) {
+            return Ws::None;
+        }
+
+        // `(` spacing: call vs. keyword.
+        if kind == "(" {
+            // sizeof/alignof/typeof are keywords syntactically but behave like calls.
+            let is_call_like_keyword = matches!(
+                prev_text,
+                "sizeof" | "alignof" | "typeof" | "offsetof" | "__typeof__"
+                    | "__alignof__" | "_Alignof"
+            );
+            // Don't apply space_before_keyword_paren for type keywords
+            // (e.g., `void(*)` in function pointer type descriptors).
+            let is_type_kw = matches!(prev_kind, "primitive_type" | "type_identifier" | "type_qualifier");
+            if is_keyword_str(prev_text) && !is_call_like_keyword && !is_type_kw {
+                return if self.config.spacing.space_before_keyword_paren {
+                    Ws::Space
+                } else {
+                    Ws::None
+                };
+            }
+            // After binary/ternary operators: always space before `(`.
+            // But NOT after unary `*` (pointer dereference) or `&` (address-of).
+            let prev_is_unary = matches!(prev_kind, "*" | "&" | "!" | "~" | "-" | "+")
+                && prev.and_then(|n| n.parent())
+                    .map(|p| matches!(p.kind(), "pointer_expression" | "unary_expression"))
+                    .unwrap_or(false);
+            // `>` closing a template argument list is NOT a binary operator.
+            let prev_is_template_close = prev_kind == ">"
+                && prev.and_then(|n| n.parent())
+                    .map(|p| matches!(p.kind(), "template_argument_list" | "template_type"))
+                    .unwrap_or(false);
+            if !prev_is_unary
+                && !prev_is_template_close
+                && (is_binary_op_kind(prev_kind) || is_compound_assign(prev_kind)
+                    || matches!(prev_kind, "=" | "?" | ":" | ","))
+            {
+                return Ws::Space;
+            }
+            // Call-like: no space by default.
+            if matches!(prev_kind, "identifier" | "type_identifier" | ")" | "]")
+                || is_call_like_keyword
+            {
+                return if self.config.spacing.space_before_call_paren {
+                    Ws::Space
+                } else {
+                    Ws::None
+                };
+            }
+            return Ws::None;
+        }
+
+        // After `,`: space.
+        if prev_kind == "," {
+            return if self.config.spacing.space_after_comma { Ws::Space } else { Ws::None };
+        }
+
+        // Unary operators: no space after them.
+        if is_unary_prefix(prev_kind, prev) {
+            return Ws::None;
+        }
+
+        // Pointer declarator `*`: handle alignment.
+        if kind == "*" || text == "*" {
+            if let Some(parent) = node.parent() {
+                match parent.kind() {
+                    "pointer_declarator" | "abstract_pointer_declarator" => {
+                        // No space between consecutive * in **.
+                        if prev_kind == "*" { return Ws::None; }
+                        return match self.config.spacing.pointer_align {
+                            PointerAlign::Name | PointerAlign::Middle => Ws::Space,
+                            PointerAlign::Type => Ws::None,
+                        };
+                    }
+                    "pointer_expression" => return Ws::None,
+                    _ => {}
+                }
+            }
+        }
+
+        // After `*` in pointer_declarator: no space before name.
+        if prev_kind == "*" {
+            if let Some(p) = prev {
+                if let Some(par) = p.parent() {
+                    if matches!(par.kind(), "pointer_declarator" | "abstract_pointer_declarator") {
+                        return Ws::None;
+                    }
+                    if par.kind() == "pointer_expression" {
+                        return Ws::None;
+                    }
+                }
+            }
+        }
+
+        // Reference declarator `&`.
+        if kind == "&" || text == "&" {
+            if let Some(parent) = node.parent() {
+                if matches!(parent.kind(), "reference_declarator" | "abstract_reference_declarator") {
+                    return match self.config.spacing.pointer_align {
+                        PointerAlign::Name | PointerAlign::Middle => Ws::Space,
+                        PointerAlign::Type => Ws::None,
+                    };
+                }
+                // For pointer_expression (address-of `&x`): space before `&` comes from
+                // general rules (e.g., after `=`). Do NOT early-return here.
+            }
+        }
+
+        // After `&` in reference_declarator or pointer_expression: no space before operand.
+        if prev_kind == "&" {
+            if let Some(p) = prev {
+                if let Some(par) = p.parent() {
+                    if matches!(
+                        par.kind(),
+                        "reference_declarator" | "abstract_reference_declarator"
+                            | "pointer_expression"
+                    ) {
+                        return Ws::None;
+                    }
+                }
+            }
+        }
+
+        // Template angle brackets: `<` and `>` in template_parameter_list / template_argument_list.
+        if (kind == "<" || kind == ">") {
+            if let Some(parent) = node.parent() {
+                if matches!(parent.kind(), "template_parameter_list" | "template_argument_list") {
+                    let sp = self.config.spacing.space_inside_angle_brackets;
+                    return if sp { Ws::Space } else { Ws::None };
+                }
+            }
+        }
+        if (prev_kind == "<" || prev_kind == ">") {
+            if let Some(p) = prev {
+                if let Some(par) = p.parent() {
+                    if matches!(par.kind(), "template_parameter_list" | "template_argument_list") {
+                        let sp = self.config.spacing.space_inside_angle_brackets;
+                        return if sp { Ws::Space } else { Ws::None };
+                    }
+                }
+            }
+        }
+
+        // Binary operators: space around them (when space_around_binary_ops).
+        if is_binary_op_kind(kind) {
+            return if self.config.spacing.space_around_binary_ops {
+                Ws::Space
+            } else {
+                Ws::None
+            };
+        }
+        if is_binary_op_kind(prev_kind) {
+            return if self.config.spacing.space_around_binary_ops {
+                Ws::Space
+            } else {
+                Ws::None
+            };
+        }
+
+        // Compound assignment.
+        if is_compound_assign(kind) || is_compound_assign(prev_kind) {
+            return Ws::Space;
+        }
+
+        // `=` in declaration init.
+        if kind == "=" || prev_kind == "=" {
+            return Ws::Space;
+        }
+
+        // Keywords before/after identifiers.
+        if is_keyword_str(prev_text) {
+            return Ws::Space;
+        }
+        if is_keyword_str(text) {
+            return Ws::Space;
+        }
+
+        // After `}`.
+        if prev_kind == "}" {
+            return Ws::Space;
+        }
+
+        // `:` (ternary, bitfield, case) — but NOT the `:` introducing a
+        // constructor member-initializer list (field_initializer_list).
+        if kind == ":" || prev_kind == ":" {
+            // No space before `:` that opens a member-initializer list.
+            if kind == ":" {
+                let in_init_list = node.parent()
+                    .map(|p| p.kind() == "field_initializer_list")
+                    .unwrap_or(false);
+                if in_init_list {
+                    return Ws::None;
+                }
+            }
+            return Ws::Space;
+        }
+
+        // `?` in ternary.
+        if kind == "?" || prev_kind == "?" {
+            return Ws::Space;
+        }
+
+        // Adjacent string literals in a concatenated_string need a space: "foo" "bar".
+        // The leaves inside string_literal nodes are `"`, string_content, escape_sequence, etc.
+        // A space is needed between the closing `"` of one string_literal and the opening
+        // `"` of the next, when they are children of different string_literal nodes that share
+        // a common concatenated_string grandparent.
+        {
+            let node_parent = node.parent();
+            let prev_parent = prev.and_then(|n| n.parent());
+            if node_parent.map(|p| p.kind()) == Some("string_literal")
+                && prev_parent.map(|p| p.kind()) == Some("string_literal")
+            {
+                if let (Some(np), Some(pp)) = (node_parent, prev_parent) {
+                    if np.start_byte() != pp.start_byte() {
+                        return Ws::Space;
+                    }
+                }
+            }
+        }
+
+        // space_after_cast: `)` closing a cast_expression followed by the value.
+        if prev_kind == ")" {
+            let in_cast = prev.and_then(|n| n.parent())
+                .map(|p| p.kind() == "cast_expression")
+                .unwrap_or(false);
+            if in_cast {
+                return match self.config.spacing.space_after_cast {
+                    SpaceOption::Add => Ws::Space,
+                    SpaceOption::Remove => Ws::None,
+                    SpaceOption::Preserve => {
+                        let gap_start = prev.map(|n| n.end_byte()).unwrap_or(0);
+                        if self.src.as_bytes().get(gap_start) == Some(&b' ') {
+                            Ws::Space
+                        } else {
+                            Ws::None
+                        }
+                    }
+                };
+            }
+        }
+
+        // Identifier / type pairs.
+        match (prev_kind, kind) {
+            ("identifier", "identifier")
+            | ("identifier", "type_identifier")
+            | ("type_identifier", "identifier")
+            | ("type_identifier", "type_identifier")
+            | ("type_identifier", "field_identifier")
+            | ("primitive_type", _)
+            | (_, "primitive_type")
+            | ("storage_class_specifier", _)
+            | ("type_qualifier", _)
+            | ("number_literal", "identifier")
+            | ("identifier", "number_literal") => Ws::Space,
+            _ => Ws::None,
+        }
+    }
+
+    // ── var-decl-block state machine ──────────────────────────────────────────
+
+    fn decl_block_enter(&mut self) {
+        if self.config.newlines.blank_line_after_var_decl_block {
+            self.decl_block_active = true;
+            self.decl_block_saw_decl = false;
+            self.decl_block_at_stmt_start = true;
+        }
+    }
+
+    fn decl_block_exit(&mut self) {
+        self.decl_block_active = false;
+        self.decl_block_saw_decl = false;
+        self.decl_block_at_stmt_start = false;
+    }
+}
+
+// ── Free functions ────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy)]
+enum Ws {
+    None,
+    Space,
+}
+
+fn collect_leaves<'t>(node: Node<'t>, out: &mut Vec<Node<'t>>) {
+    if node.child_count() == 0 {
+        out.push(node);
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_leaves(child, out);
+    }
+}
+
+fn is_preproc(kind: &str) -> bool {
+    matches!(
+        kind,
+        "preproc_include"
+            | "preproc_def"
+            | "preproc_function_def"
+            | "preproc_if"
+            | "preproc_ifdef"
+            | "preproc_ifndef"
+            | "preproc_else"
+            | "preproc_elif"
+            | "preproc_endif"
+            | "preproc_call"
+            | "preproc_defined"
+            | "preproc_undef"
+            | "preproc_pragma"
+            | "preproc_error"
+            | "preproc_warning"
+            | "preproc_line"
+    )
+}
+
+/// Returns true when an ERROR node represents a braceless `switch (cond)` —
+/// i.e. tree-sitter couldn't attach a compound_statement body because the
+/// source uses `switch (x) case N:` without braces.
+fn is_braceless_switch_error(node: Node) -> bool {
+    if node.kind() != "ERROR" { return false; }
+    let mut cursor = node.walk();
+    let mut has_switch = false;
+    let mut has_paren_expr = false;
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "switch" => has_switch = true,
+            "parenthesized_expression" => has_paren_expr = true,
+            _ => {}
+        }
+    }
+    has_switch && has_paren_expr
+}
+
+fn is_null_stmt(node: Node) -> bool {
+    if node.kind() == "expression_statement" {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        return children.len() == 1 && children[0].kind() == ";";
+    }
+    false
+}
+
+fn should_inject(node: Node) -> bool {
+    match node.kind() {
+        "compound_statement" => false,
+        k if is_preproc(k) => false,
+        _ => !is_null_stmt(node),
+    }
+}
+
+fn is_binary_op_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+            | "==" | "!=" | "<" | ">" | "<=" | ">="
+            | "&&" | "||"
+    )
+}
+
+fn is_compound_assign(kind: &str) -> bool {
+    matches!(
+        kind,
+        "+=" | "-=" | "*=" | "/=" | "%="
+            | "&=" | "|=" | "^=" | "<<=" | ">>="
+    )
+}
+
+fn is_unary_prefix(kind: &str, node: Option<Node<'_>>) -> bool {
+    if !matches!(kind, "!" | "~" | "+" | "-" | "*" | "&" | "++" | "--") {
+        return false;
+    }
+    if let Some(n) = node {
+        if let Some(parent) = n.parent() {
+            if parent.kind() == "update_expression" {
+                // Prefix if this node is first child.
+                let mut cursor = parent.walk();
+                let first_start = parent.children(&mut cursor).next().map(|c| c.start_byte());
+                drop(cursor);
+                if let Some(fs) = first_start {
+                    return fs == n.start_byte();
+                }
+            }
+            return matches!(parent.kind(), "unary_expression" | "pointer_expression");
+        }
+    }
+    false
+}
+
+fn is_suffix(node: Node<'_>) -> bool {
+    if let Some(parent) = node.parent() {
+        if parent.kind() == "update_expression" {
+            let mut cursor = parent.walk();
+            let children: Vec<Node> = parent.children(&mut cursor).collect();
+            if let Some(&last) = children.last() {
+                return last.start_byte() == node.start_byte();
+            }
+        }
+    }
+    false
+}
+
+fn is_keyword_str(text: &str) -> bool {
+    matches!(
+        text,
+        "if" | "else" | "for" | "while" | "do" | "switch" | "case" | "default"
+            | "return" | "break" | "continue" | "goto" | "typedef" | "struct"
+            | "union" | "enum" | "sizeof" | "typeof" | "alignof" | "offsetof"
+            | "static" | "extern" | "auto" | "register" | "inline" | "volatile"
+            | "const" | "restrict" | "unsigned" | "signed" | "void" | "char"
+            | "short" | "int" | "long" | "float" | "double" | "_Bool"
+            | "namespace" | "class" | "template" | "typename" | "new" | "delete"
+            | "public" | "private" | "protected" | "virtual" | "override"
+            | "explicit" | "friend" | "operator" | "this" | "using"
+            | "nullptr" | "true" | "false" | "constexpr" | "noexcept"
+            | "static_assert" | "decltype" | "throw" | "catch" | "try"
+    )
+}
+
+fn is_declaration_node(node: Node) -> bool {
+    matches!(node.kind(), "declaration" | "type_definition")
 }

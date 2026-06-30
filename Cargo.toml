@@ -6,6 +6,10 @@ description = "Multi-language code formatter built on tree-sitter"
 license = "MIT"
 authors = ["Brandon Arrendondo <brandon.arrendondo@bissell.com>"]
 
+[lib]
+name = "moldy"
+path = "src/lib.rs"
+
 [[bin]]
 name = "moldy"
 path = "src/main.rs"
