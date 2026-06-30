@@ -10,11 +10,8 @@ use tree_sitter::Node;
 // ── Public entry point ────────────────────────────────────────────────────────
 
 pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, MoldyError> {
-    let ts_lang: tree_sitter::Language = match lang_key {
-        "c" => lang_parsing_substrate::tree_sitter_c::LANGUAGE.into(),
-        "cpp" => lang_parsing_substrate::tree_sitter_cpp::LANGUAGE.into(),
-        _ => unreachable!("c_cpp formatter called with unexpected language key"),
-    };
+    let ts_lang = lang_parsing_substrate::language_for_key(lang_key)
+        .ok_or_else(|| MoldyError::UnsupportedLanguage(lang_key.to_string()))?;
 
     let mut parser = tree_sitter::Parser::new();
     parser
