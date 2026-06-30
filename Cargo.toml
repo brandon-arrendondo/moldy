@@ -1,0 +1,31 @@
+[package]
+name = "moldy"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-language code formatter built on tree-sitter"
+license = "MIT"
+authors = ["Brandon Arrendondo <brandon.arrendondo@bissell.com>"]
+
+[[bin]]
+name = "moldy"
+path = "src/main.rs"
+
+[dependencies]
+lang-parsing-substrate = { path = "../lang_parsing_substrate", features = ["lang-c", "lang-cpp"] }
+tree-sitter            = "0.25"
+clap                   = { version = "4", features = ["derive"] }
+serde                  = { version = "1", features = ["derive"] }
+toml                   = "0.8"
+thiserror              = "2"
+anyhow                 = "1"
+walkdir                = "2"
+globset                = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+strip         = true
