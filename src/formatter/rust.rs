@@ -140,6 +140,23 @@ impl<'a> Fmt<'a> {
         &self.src[node.start_byte()..node.end_byte()]
     }
 
+    /// Column (in `char`s) of the current end of output, for width budgeting.
+    fn current_column(&self) -> usize {
+        match self.out.rfind('\n') {
+            Some(i) => self.out[i + 1..].chars().count(),
+            None => self.out.chars().count(),
+        }
+    }
+
+    /// Render `f` into a scratch buffer instead of `self.out`, returning what
+    /// it produced. Used to measure a candidate single-line rendering before
+    /// committing to it (width-based wrapping, field-list collapsing).
+    fn render_scratch<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
+        let saved = std::mem::take(&mut self.out);
+        f(self);
+        std::mem::replace(&mut self.out, saved)
+    }
+
     /// Count blank lines in source between `prev_end` and `start`, capped at
     /// `config.newlines.max_blank_lines`.
     fn source_blanks(&self, prev_end: usize, start: usize) -> usize {
@@ -393,6 +410,10 @@ impl<'a> Fmt<'a> {
             return;
         }
 
+        if self.config.rust.collapse_field_lists && self.try_emit_collapsed_field_list(&items) {
+            return;
+        }
+
         self.raw("{");
         self.nl();
         self.depth += 1;
@@ -418,6 +439,45 @@ impl<'a> Fmt<'a> {
         self.depth -= 1;
         self.emit_indent();
         self.raw("}");
+    }
+
+    /// Try to render a struct/enum field list as `{ a: T, b: U }` on one
+    /// line. Only valid when every field is plain (no doc comment or
+    /// attribute riding along, which rustfmt always keeps on its own line)
+    /// and the rendered form fits within `rust.max_width`. Returns `false`
+    /// (emitting nothing) if collapsing isn't possible, so the caller can
+    /// fall back to the one-per-line form.
+    fn try_emit_collapsed_field_list(&mut self, items: &[Node]) -> bool {
+        if items.iter().any(|n| {
+            matches!(
+                n.kind(),
+                "line_comment" | "block_comment" | "attribute_item" | "inner_attribute_item"
+            )
+        }) {
+            return false;
+        }
+
+        let current_col = self.current_column();
+        let inline = self.render_scratch(|s| {
+            s.raw(" ");
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    s.raw(", ");
+                }
+                s.emit_node(*item);
+            }
+            s.raw(" ");
+        });
+
+        let total_width = current_col + 1 + inline.chars().count() + 1;
+        if inline.contains('\n') || total_width > self.config.rust.max_width as usize {
+            return false;
+        }
+
+        self.raw("{");
+        self.raw(&inline);
+        self.raw("}");
+        true
     }
 
     /// `match` arms: forced one-per-line. The trailing comma is whatever the
@@ -518,13 +578,36 @@ impl<'a> Fmt<'a> {
         }
 
         // Only explode into one-item-per-line when there's more than one
-        // item and the source already spanned multiple lines. A single item
-        // (e.g. a closure or struct literal as the sole call argument) stays
-        // hugged against its own parens/brackets — its content handles its
-        // own line breaks.
-        let has_newline =
-            groups.len() > 1 && self.src[node.start_byte()..node.end_byte()].contains('\n');
-        if !has_newline {
+        // item and either the source already spanned multiple lines, or
+        // (with `rust.width_based_wrapping`) the single-line rendering
+        // wouldn't fit within `rust.max_width`. A single item (e.g. a
+        // closure or struct literal as the sole call argument) stays hugged
+        // against its own parens/brackets — its content handles its own
+        // line breaks.
+        let needs_break = if groups.len() <= 1 {
+            false
+        } else if self.config.rust.width_based_wrapping {
+            let current_col = self.current_column();
+            let inline = self.render_scratch(|s| {
+                if pad {
+                    s.raw(" ");
+                }
+                for (i, group) in groups.iter().enumerate() {
+                    if i > 0 {
+                        s.raw(", ");
+                    }
+                    s.emit_group(group, node);
+                }
+                if pad {
+                    s.raw(" ");
+                }
+            });
+            let total_width = current_col + open.len() + inline.chars().count() + close.len();
+            inline.contains('\n') || total_width > self.config.rust.max_width as usize
+        } else {
+            self.src[node.start_byte()..node.end_byte()].contains('\n')
+        };
+        if !needs_break {
             if pad {
                 self.raw(" ");
             }
@@ -555,5 +638,96 @@ impl<'a> Fmt<'a> {
             self.emit_indent();
             self.raw(close);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format;
+    use crate::config::Config;
+
+    fn fmt_with(config: &Config, src: &str) -> String {
+        format(src, config).unwrap_or_else(|e| panic!("format failed: {e}"))
+    }
+
+    #[test]
+    fn default_config_always_explodes_field_lists() {
+        let src = "struct Point { x: i32, y: i32 }\n";
+        let out = fmt_with(&Config::default(), src);
+        assert_eq!(out, "struct Point {\n    x: i32,\n    y: i32,\n}\n");
+    }
+
+    #[test]
+    fn collapse_field_lists_keeps_short_struct_on_one_line() {
+        let mut config = Config::default();
+        config.rust.collapse_field_lists = true;
+        let src = "struct Point {\n    x: i32,\n    y: i32,\n}\n";
+        let out = fmt_with(&config, src);
+        assert_eq!(out, "struct Point { x: i32, y: i32 }\n");
+    }
+
+    #[test]
+    fn collapse_field_lists_still_explodes_when_over_width() {
+        let mut config = Config::default();
+        config.rust.collapse_field_lists = true;
+        config.rust.max_width = 20;
+        let src = "struct Point {\n    x: i32,\n    y: i32,\n}\n";
+        let out = fmt_with(&config, src);
+        assert_eq!(out, "struct Point {\n    x: i32,\n    y: i32,\n}\n");
+    }
+
+    #[test]
+    fn collapse_field_lists_skips_fields_with_comments() {
+        let mut config = Config::default();
+        config.rust.collapse_field_lists = true;
+        let src = "struct Point {\n    // the x coordinate\n    x: i32,\n    y: i32,\n}\n";
+        let out = fmt_with(&config, src);
+        assert!(out.contains('\n'));
+        assert!(out.starts_with("struct Point {\n"));
+    }
+
+    #[test]
+    fn default_config_preserves_source_single_line_call() {
+        let src = "fn call() {\n    bar(alpha, beta, gamma, delta, epsilon, zeta);\n}\n";
+        let out = fmt_with(&Config::default(), src);
+        assert_eq!(
+            out,
+            "fn call() {\n    bar(alpha, beta, gamma, delta, epsilon, zeta);\n}\n"
+        );
+    }
+
+    #[test]
+    fn width_based_wrapping_breaks_call_args_over_budget() {
+        let mut config = Config::default();
+        config.rust.width_based_wrapping = true;
+        config.rust.max_width = 40;
+        let src = "fn call() {\n    bar(alpha, beta, gamma, delta, epsilon, zeta);\n}\n";
+        let out = fmt_with(&config, src);
+        assert_eq!(
+            out,
+            "fn call() {\n    bar(\n        alpha,\n        beta,\n        gamma,\n        delta,\n        epsilon,\n        zeta,\n    );\n}\n"
+        );
+    }
+
+    #[test]
+    fn width_based_wrapping_keeps_short_call_inline() {
+        let mut config = Config::default();
+        config.rust.width_based_wrapping = true;
+        config.rust.max_width = 40;
+        let src = "fn call() {\n    foo(1, 2, 3);\n}\n";
+        let out = fmt_with(&config, src);
+        assert_eq!(out, "fn call() {\n    foo(1, 2, 3);\n}\n");
+    }
+
+    #[test]
+    fn width_based_wrapping_is_idempotent() {
+        let mut config = Config::default();
+        config.rust.width_based_wrapping = true;
+        config.rust.collapse_field_lists = true;
+        config.rust.max_width = 40;
+        let src = "struct Big {\n    name: String,\n    description: String,\n    created_at: u64,\n}\n\nfn call() {\n    bar(alpha, beta, gamma, delta, epsilon, zeta);\n}\n";
+        let pass1 = format(src, &config).unwrap();
+        let pass2 = format(&pass1, &config).unwrap();
+        assert_eq!(pass1, pass2);
     }
 }

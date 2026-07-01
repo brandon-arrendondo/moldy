@@ -15,6 +15,40 @@ pub struct Config {
     pub preprocessor: PreprocConfig,
     pub comments: CommentConfig,
     pub ignore: IgnoreConfig,
+    pub rust: RustConfig,
+}
+
+// ── Rust ─────────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/rust.rs`. Everything here defaults to
+/// moldy's original from-scratch behavior; set `width_based_wrapping` and
+/// `collapse_field_lists` to move toward rustfmt's actual output so moldy can
+/// replace `cargo fmt` outright instead of just running alongside it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RustConfig {
+    /// Column budget used by `width_based_wrapping` and `collapse_field_lists`.
+    /// Matches rustfmt's default `max_width`.
+    pub max_width: u32,
+    /// Break bracketed comma lists (call args, tuples, arrays, generics, ...)
+    /// onto one item per line based on whether the single-line rendering
+    /// fits within `max_width`, instead of moldy's default of preserving
+    /// whatever single/multi-line choice the source already made.
+    pub width_based_wrapping: bool,
+    /// Collapse struct/enum field lists onto a single line when they have no
+    /// comments/attributes and fit within `max_width`, instead of moldy's
+    /// default of always exploding them one field per line.
+    pub collapse_field_lists: bool,
+}
+
+impl Default for RustConfig {
+    fn default() -> Self {
+        Self {
+            max_width: 100,
+            width_based_wrapping: false,
+            collapse_field_lists: false,
+        }
+    }
 }
 
 // ── Preprocessor ─────────────────────────────────────────────────────────────
@@ -369,10 +403,18 @@ endif_comment_space = 1
 
 [comments]
 normalize_block_comment_closing = false
+
+[rust]
+max_width = 100
+width_based_wrapping = true
+collapse_field_lists = true
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
         assert_eq!(cfg.indent.width, 4);
         assert_eq!(cfg.braces.style, BraceStyle::Kr);
+        assert_eq!(cfg.rust.max_width, 100);
+        assert!(cfg.rust.width_based_wrapping);
+        assert!(cfg.rust.collapse_field_lists);
         assert_eq!(cfg.newlines.max_blank_lines, 2);
     }
 }
