@@ -1,0 +1,62 @@
+namespace geometry {
+
+template <typename T>
+T max_of(T a, T b)
+{
+    return a > b ? a : b;
+}
+
+template <typename T, int N>
+class FixedArray {
+public:
+    T &at(int index)
+    {
+        return data_[index];
+    }
+
+    int size() const
+    {
+        return N;
+    }
+
+private:
+    T data_[N];
+};
+
+namespace detail {
+
+template <typename T>
+struct Wrapper {
+    T value;
+};
+
+} // namespace detail
+
+using detail::Wrapper;
+
+template <>
+class FixedArray<bool, 1> {
+public:
+    bool flag;
+};
+
+} // namespace geometry
+
+namespace app {
+namespace util {
+
+int double_it(int x)
+{
+    return x * 2;
+}
+
+} // namespace util
+} // namespace app
+
+using namespace geometry;
+
+template <typename T>
+T identity(T value)
+{
+    return value;
+}

@@ -1,0 +1,45 @@
+#include <stdarg.h>
+
+static int internal_counter = 0;
+
+extern int external_total;
+
+int add(int a, int b);
+int subtract(int a, int b);
+
+static inline int square(int x)
+{
+    return x * x;
+}
+
+int sum_all(int count, ...)
+{
+    va_list args;
+    va_start(args, count);
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, int);
+    }
+    va_end(args);
+    return total;
+}
+
+int a, b, c;
+int *p, q, *r;
+
+const int max_retries = 3;
+static const char *const default_name = "unnamed";
+
+int (*make_adder(int base))(int)
+{
+    static int stored_base;
+    stored_base = base;
+    return NULL;
+}
+
+void takes_array(int values[], int count)
+{
+    for (int i = 0; i < count; i++) {
+        values[i] *= 2;
+    }
+}

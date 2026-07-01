@@ -1,0 +1,84 @@
+#include <string>
+
+class Shape {
+public:
+    Shape(): name_("shape")
+    {}
+    virtual ~Shape()
+    {}
+
+    virtual double area() const = 0;
+
+    const std::string &name() const
+{
+        return name_;
+    }
+
+protected:
+    std::string name_;
+};
+
+class Circle: public Shape {
+public:
+    explicit Circle(double radius): radius_(radius)
+    {}
+
+    double area() const override
+{
+        return 3.14159 * radius_ * radius_;
+    }
+
+private:
+    double radius_;
+};
+
+class Square final: public Shape {
+public:
+    explicit Square(double side): radius_unused_(0), side_(side)
+    {}
+
+    double area() const override
+{
+        return side_ * side_;
+    }
+
+private:
+    double radius_unused_;
+    double side_;
+};
+
+class Colored: public Shape {
+public:
+    Colored(double r, int color): radius_(r), color_(color)
+    {}
+
+private:
+    double radius_;
+    int color_;
+};
+
+struct Point3D {
+    double x;
+    double y;
+    double z;
+};
+
+class Base1 {
+public:
+    virtual void greet() const
+{}
+};
+
+class Base2 {
+public:
+    virtual void farewell() const
+{}
+};
+
+class Multi: public Base1, public Base2 {
+public:
+    void greet() const override
+{}
+    void farewell() const override
+{}
+};

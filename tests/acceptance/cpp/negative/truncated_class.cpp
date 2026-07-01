@@ -1,0 +1,6 @@
+class Incomplete {
+public:
+    Incomplete();
+    void method(int a, int b)
+    {
+        int total = a +

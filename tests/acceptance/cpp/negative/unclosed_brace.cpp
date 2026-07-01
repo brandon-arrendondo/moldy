@@ -1,0 +1,10 @@
+class Widget {
+public:
+    Widget() {}
+
+    void run()
+    {
+        if (true) {
+            return;
+        }
+    }

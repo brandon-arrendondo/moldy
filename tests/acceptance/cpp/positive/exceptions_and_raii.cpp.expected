@@ -1,0 +1,46 @@
+#include <stdexcept>
+
+class FileHandle {
+public:
+    explicit FileHandle(const char *path)
+    {
+        if (path == nullptr) {
+            throw std::invalid_argument("path is null");
+        }
+    }
+
+    ~FileHandle()
+    {
+        close();
+    }
+
+private:
+    void close()
+    {}
+};
+
+int safe_divide(int a, int b)
+{
+    try {
+        if (b == 0) {
+            throw std::runtime_error("division by zero");
+        }
+        return a / b;
+    }
+    catch (const std::runtime_error &e) {
+        return 0;
+    }
+    catch (...) {
+        return -1;
+    }
+}
+
+void process()
+{
+    try {
+        FileHandle handle("data.bin");
+    }
+    catch (const std::invalid_argument &e) {
+        throw;
+    }
+}

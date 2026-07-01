@@ -1,0 +1,58 @@
+#include <stdint.h>
+
+struct point {
+    int x;
+    int y;
+};
+
+typedef struct point point_t;
+
+struct rect {
+    struct point top_left;
+    struct point bottom_right;
+};
+
+union value {
+    int as_int;
+    float as_float;
+    char as_bytes[4];
+};
+
+typedef enum color {
+    COLOR_RED   = 0,
+    COLOR_GREEN = 1,
+    COLOR_BLUE  = 2,
+} color_t;
+
+enum status {
+    STATUS_OK,
+    STATUS_ERROR,
+    STATUS_PENDING,
+};
+
+struct flags {
+    unsigned int active : 1;
+    unsigned int visible : 1;
+    unsigned int reserved : 6;
+};
+
+struct node {
+    int value;
+    struct node *next;
+};
+
+struct wrapper {
+    union {
+        int i;
+        float f;
+    } payload;
+    struct {
+        int a;
+        int b;
+    } anon;
+};
+
+typedef struct {
+    uint32_t id;
+    uint8_t kind;
+} record_t;

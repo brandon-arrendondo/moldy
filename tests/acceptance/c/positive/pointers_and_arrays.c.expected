@@ -1,0 +1,73 @@
+#include <stddef.h>
+
+int add(int a, int b)
+{
+    return a + b;
+}
+
+typedef int (*binop_t)(int, int);
+
+int apply(binop_t op, int a, int b)
+{
+    return op(a, b);
+}
+
+void fill(int *arr, size_t len, int value)
+{
+    for (size_t i = 0; i < len; i++) {
+        arr[i] = value;
+    }
+}
+
+int matrix_sum(int matrix[3][3])
+{
+    int total = 0;
+
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            total += matrix[i][j];
+        }
+    }
+    return total;
+}
+
+void swap(int *a, int *b)
+{
+    int tmp = *a;
+
+    *a = *b;
+    *b = tmp;
+}
+
+void indirect(void)
+{
+    int value = 10;
+    int *p = &value;
+    int **pp = &p;
+
+    **pp = 20;
+}
+
+const char *const names[3] = {
+    "alpha",
+    "beta",
+    "gamma",
+};
+
+binop_t select_op(char c)
+{
+    static binop_t ops[2] = { add, add };
+
+    return ops[c == '+' ? 0 : 1];
+}
+
+char *strdup_like(const char *src, size_t len)
+{
+    char *dst = (char *)malloc(len + 1);
+
+    for (size_t i = 0; i < len; i++) {
+        dst[i] = src[i];
+    }
+    dst[len] = '\0';
+    return dst;
+}

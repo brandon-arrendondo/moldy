@@ -1,0 +1,34 @@
+// This file exercises comment and string-literal formatting.
+
+/**
+ * Computes the length of a NUL-terminated string.
+ *
+ * @param s the string to measure
+ * @return the number of bytes before the terminator
+ */
+int my_strlen(const char *s)
+{
+    int len = 0;
+    while (s[len] != '\0') { /* scan until terminator */
+        len++;
+    }
+    return len; // return the final count
+}
+
+/* A short block comment. */
+int answer = 42;
+
+const char *greeting = "hello, \"world\"\n";
+char newline = '\n';
+char backslash = '\\';
+const char *escaped_path = "C:\\Users\\test\\file.txt";
+
+/*
+ * Multi-line block comment
+ * with several lines
+ * of continuation text.
+ */
+void noop(void)
+{
+    // no-op
+}

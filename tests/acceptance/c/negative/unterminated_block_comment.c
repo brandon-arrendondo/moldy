@@ -1,0 +1,5 @@
+int main(void)
+{
+    /* this comment never closes
+    return 0;
+}
