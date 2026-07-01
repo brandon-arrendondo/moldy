@@ -1,0 +1,19 @@
+# PEP8 / flake8 defaults
+# https://peps.python.org/pep-0008/
+#
+# Same as moldy's built-in default for Python — listed explicitly so it's
+# selectable by name alongside `black`, and so its settings are documented
+# in one place. 79-column lines, 4-space indentation, standard blank-line
+# rules (2 between top-level defs, 1 between methods) — the profile flake8
+# checks against out of the box.
+
+[indent]
+style = "spaces"
+width = 4
+
+[newlines]
+style = "lf"
+final_newline = true
+
+[python]
+max_width = 79

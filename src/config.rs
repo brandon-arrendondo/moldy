@@ -16,6 +16,25 @@ pub struct Config {
     pub comments: CommentConfig,
     pub ignore: IgnoreConfig,
     pub rust: RustConfig,
+    pub python: PythonConfig,
+}
+
+// ── Python ───────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/python.rs` (currently a stub — see the
+/// module docs there). Default matches PEP8/flake8 (`max_width = 79`); the
+/// `black` preset (`presets/python/black.toml`) moves it to 88 to match
+/// `ruff format`'s default.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PythonConfig {
+    pub max_width: u32,
+}
+
+impl Default for PythonConfig {
+    fn default() -> Self {
+        Self { max_width: 79 }
+    }
 }
 
 // ── Rust ─────────────────────────────────────────────────────────────────────
@@ -408,6 +427,9 @@ normalize_block_comment_closing = false
 max_width = 100
 width_based_wrapping = true
 collapse_field_lists = true
+
+[python]
+max_width = 88
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
         assert_eq!(cfg.indent.width, 4);
@@ -415,6 +437,7 @@ collapse_field_lists = true
         assert_eq!(cfg.rust.max_width, 100);
         assert!(cfg.rust.width_based_wrapping);
         assert!(cfg.rust.collapse_field_lists);
+        assert_eq!(cfg.python.max_width, 88);
         assert_eq!(cfg.newlines.max_blank_lines, 2);
     }
 }

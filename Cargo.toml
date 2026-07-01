@@ -15,7 +15,7 @@ name = "moldy"
 path = "src/main.rs"
 
 [dependencies]
-lang-parsing-substrate = { version = "0.1.2", features = ["lang-c", "lang-cpp", "lang-rust"] }
+lang-parsing-substrate = { version = "0.1.2", features = ["lang-c", "lang-cpp", "lang-rust", "lang-python"] }
 tree-sitter            = "0.25"
 clap                   = { version = "4", features = ["derive"] }
 serde                  = { version = "1", features = ["derive"] }

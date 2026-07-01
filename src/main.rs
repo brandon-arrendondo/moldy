@@ -23,7 +23,7 @@ struct Cli {
     config: Option<PathBuf>,
 
     /// Use a built-in style preset instead of a config file. C/C++: "linux-kernel", "riot".
-    /// Rust: "rustfmt-compat".
+    /// Rust: "rustfmt-compat". Python: "pep8", "black".
     #[arg(long, value_name = "NAME")]
     preset: Option<String>,
 

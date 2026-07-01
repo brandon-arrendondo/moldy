@@ -1,0 +1,18 @@
+# Black / `ruff format` defaults
+# https://docs.astral.sh/ruff/formatter/
+#
+# Matches ruff's formatter (Black-compatible): 88-column lines instead of
+# PEP8's 79. flake8 will flag lines between 80-88 columns under its default
+# max-line-length=79 — this preset is for repos standardizing on `ruff
+# format`/`black` instead of flake8's stricter width.
+
+[indent]
+style = "spaces"
+width = 4
+
+[newlines]
+style = "lf"
+final_newline = true
+
+[python]
+max_width = 88

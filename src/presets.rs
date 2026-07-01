@@ -30,6 +30,16 @@ const PRESETS: &[Preset] = &[
         language: "rust",
         toml: include_str!("../presets/rust/rustfmt-compat.toml"),
     },
+    Preset {
+        name: "pep8",
+        language: "python",
+        toml: include_str!("../presets/python/pep8.toml"),
+    },
+    Preset {
+        name: "black",
+        language: "python",
+        toml: include_str!("../presets/python/black.toml"),
+    },
 ];
 
 /// Names of all built-in presets, for error messages.
@@ -77,6 +87,8 @@ mod tests {
         assert!(described.contains(&("c-cpp", "linux-kernel")));
         assert!(described.contains(&("c-cpp", "riot")));
         assert!(described.contains(&("rust", "rustfmt-compat")));
+        assert!(described.contains(&("python", "pep8")));
+        assert!(described.contains(&("python", "black")));
     }
 
     #[test]
@@ -87,5 +99,11 @@ mod tests {
         assert_eq!(cfg.rust.max_width, 100);
         assert_eq!(cfg.indent.width, 4);
         assert_eq!(cfg.newlines.max_blank_lines, 1);
+    }
+
+    #[test]
+    fn python_presets_set_expected_widths() {
+        assert_eq!(load("pep8").unwrap().python.max_width, 79);
+        assert_eq!(load("black").unwrap().python.max_width, 88);
     }
 }
