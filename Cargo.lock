@@ -233,10 +233,11 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "lang-parsing-substrate"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a2774922986a6a9b6fab07127ad3af79ae6f7600fe20aad2ee33340a0ab05f2"
+checksum = "462d27bf19f777a832e01efcffcdb74675fd8d27ea8f6e50dffd7337754549ba"
 dependencies = [
+ "globset",
  "tree-sitter",
  "tree-sitter-ada",
  "tree-sitter-c",
@@ -286,7 +287,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "globset",
  "lang-parsing-substrate",
  "serde",
  "tempfile",

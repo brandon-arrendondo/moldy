@@ -1,11 +1,12 @@
 use clap::Parser;
-use globset::{Glob, GlobSetBuilder};
+use lang_parsing_substrate::PathIgnore;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use moldy::config::Config;
 use moldy::error;
 use moldy::formatter;
+use moldy::toolchain::ToolchainConfig;
 
 #[derive(Parser)]
 #[command(
@@ -51,7 +52,8 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("--check and --in-place are mutually exclusive");
     }
 
-    let config = load_config(cli.config.as_deref(), cli.preset.as_deref())?;
+    let mut config = load_config(cli.config.as_deref(), cli.preset.as_deref())?;
+    merge_toolchain_ignores(&mut config)?;
     let expanded = expand_paths(&cli.files, cli.recursive, &config)?;
 
     let mut any_changed = false;
@@ -107,6 +109,22 @@ fn load_config(explicit: Option<&Path>, preset: Option<&str>) -> anyhow::Result<
     Ok(Config::default())
 }
 
+/// Folds `toolchain.toml`'s shared `[ignore].paths` (discovered by walking up
+/// from the current directory) into `config.ignore.patterns`, so a project's
+/// file/directory ignores are expressed once and respected by every tool
+/// (knots, moldy, tools_sqc) instead of just moldy's own `[ignore]` section.
+fn merge_toolchain_ignores(config: &mut Config) -> anyhow::Result<()> {
+    let cwd = std::env::current_dir()?;
+    merge_toolchain_ignores_from(config, &cwd)
+}
+
+fn merge_toolchain_ignores_from(config: &mut Config, start_dir: &Path) -> anyhow::Result<()> {
+    if let Some(toolchain) = ToolchainConfig::discover(start_dir)? {
+        config.ignore.patterns.extend(toolchain.ignore.paths);
+    }
+    Ok(())
+}
+
 fn read_source(path: &Path) -> Result<String, error::MoldyError> {
     let bytes = std::fs::read(path).map_err(|e| error::MoldyError::Io {
         path: path.display().to_string(),
@@ -122,7 +140,7 @@ fn expand_paths(
     recursive: bool,
     config: &Config,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    let ignore = build_ignore_set(&config.ignore.patterns)?;
+    let ignore = PathIgnore::new(&config.ignore.patterns)?;
     let mut out = Vec::new();
 
     for p in paths {
@@ -164,25 +182,67 @@ fn expand_paths(
     Ok(out)
 }
 
-fn build_ignore_set(patterns: &[String]) -> anyhow::Result<globset::GlobSet> {
-    let mut builder = GlobSetBuilder::new();
-    for pat in patterns {
-        builder.add(Glob::new(pat)?);
-    }
-    Ok(builder.build()?)
-}
-
-fn should_ignore(path: &Path, set: &globset::GlobSet) -> bool {
-    if set.is_empty() {
-        return false;
-    }
-    if set.is_match(path) {
+/// Checks the full path first, then falls back to matching the bare filename
+/// alone — so a pattern like `"*.min.js"` ignores matches anywhere in the
+/// tree without needing a `"**/*.min.js"` prefix.
+fn should_ignore(path: &Path, ignore: &PathIgnore) -> bool {
+    if ignore.is_ignored(path) {
         return true;
     }
     if let Some(name) = path.file_name() {
-        if set.is_match(Path::new(name)) {
+        if ignore.is_ignored(Path::new(name)) {
             return true;
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_ignore_matches_full_path_glob() {
+        let ignore = PathIgnore::new(["vendor/**"]).unwrap();
+        assert!(should_ignore(Path::new("vendor/lib/foo.c"), &ignore));
+        assert!(!should_ignore(Path::new("src/foo.c"), &ignore));
+    }
+
+    #[test]
+    fn should_ignore_falls_back_to_bare_filename() {
+        let ignore = PathIgnore::new(["*.min.js"]).unwrap();
+        assert!(should_ignore(
+            Path::new("src/vendor/jquery.min.js"),
+            &ignore
+        ));
+    }
+
+    #[test]
+    fn merge_toolchain_ignores_extends_config_patterns() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("toolchain.toml"),
+            "[ignore]\npaths = [\"generated/**\"]\n",
+        )
+        .unwrap();
+        let mut config = Config {
+            ignore: moldy::config::IgnoreConfig {
+                patterns: vec!["vendor/**".to_string()],
+            },
+            ..Config::default()
+        };
+        merge_toolchain_ignores_from(&mut config, dir.path()).unwrap();
+        assert_eq!(
+            config.ignore.patterns,
+            vec!["vendor/**".to_string(), "generated/**".to_string()]
+        );
+    }
+
+    #[test]
+    fn merge_toolchain_ignores_is_noop_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        merge_toolchain_ignores_from(&mut config, dir.path()).unwrap();
+        assert!(config.ignore.patterns.is_empty());
+    }
 }
