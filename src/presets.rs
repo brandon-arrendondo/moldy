@@ -1,33 +1,46 @@
 //! Built-in `Config` presets for common project styles, embedded at compile
-//! time from `presets/*.toml` so `moldy` works as a single binary with no
-//! extra files to ship alongside it.
+//! time from `presets/<language>/*.toml` so `moldy` works as a single binary
+//! with no extra files to ship alongside it. Presets are organized on disk
+//! by the language they target, mirroring `src/formatter/`.
 
 use crate::config::Config;
 use crate::error::MoldyError;
 
 struct Preset {
     name: &'static str,
+    /// Directory under `presets/` this preset lives in, for docs/listing —
+    /// not part of the `--preset` lookup key, which stays flat.
+    language: &'static str,
     toml: &'static str,
 }
 
 const PRESETS: &[Preset] = &[
     Preset {
         name: "linux-kernel",
-        toml: include_str!("../presets/linux-kernel.toml"),
+        language: "c-cpp",
+        toml: include_str!("../presets/c-cpp/linux-kernel.toml"),
     },
     Preset {
         name: "riot",
-        toml: include_str!("../presets/riot.toml"),
+        language: "c-cpp",
+        toml: include_str!("../presets/c-cpp/riot.toml"),
     },
     Preset {
         name: "rustfmt-compat",
-        toml: include_str!("../presets/rustfmt-compat.toml"),
+        language: "rust",
+        toml: include_str!("../presets/rust/rustfmt-compat.toml"),
     },
 ];
 
-/// Names of all built-in presets, for `--help` text and error messages.
+/// Names of all built-in presets, for error messages.
 pub fn names() -> Vec<&'static str> {
     PRESETS.iter().map(|p| p.name).collect()
+}
+
+/// `(language, name)` for every built-in preset, for `--help` text grouped
+/// by the language each preset targets.
+pub fn describe() -> Vec<(&'static str, &'static str)> {
+    PRESETS.iter().map(|p| (p.language, p.name)).collect()
 }
 
 /// Look up a built-in preset by name and parse it into a `Config`.
@@ -55,6 +68,15 @@ mod tests {
     #[test]
     fn unknown_preset_errors() {
         assert!(load("does-not-exist").is_err());
+    }
+
+    #[test]
+    fn describe_groups_presets_by_language() {
+        let described = describe();
+        assert_eq!(described.len(), names().len());
+        assert!(described.contains(&("c-cpp", "linux-kernel")));
+        assert!(described.contains(&("c-cpp", "riot")));
+        assert!(described.contains(&("rust", "rustfmt-compat")));
     }
 
     #[test]

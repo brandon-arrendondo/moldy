@@ -22,7 +22,8 @@ struct Cli {
     #[arg(short, long, value_name = "FILE", conflicts_with = "preset")]
     config: Option<PathBuf>,
 
-    /// Use a built-in style preset instead of a config file (e.g. "linux-kernel", "riot").
+    /// Use a built-in style preset instead of a config file. C/C++: "linux-kernel", "riot".
+    /// Rust: "rustfmt-compat".
     #[arg(long, value_name = "NAME")]
     preset: Option<String>,
 
