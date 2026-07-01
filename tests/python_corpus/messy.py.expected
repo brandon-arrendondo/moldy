@@ -1,0 +1,43 @@
+from functools import wraps
+
+
+x = 1
+y = 2
+z = x**2 + y**2
+
+
+def compute(a, b, c):
+    total = (a**2 + b**2) ** 0.5
+    return total
+
+
+def long_signature(
+    argument_one, argument_two, argument_three, argument_four, argument_five
+):
+    return argument_one
+
+
+class Config:
+    """Holds settings."""
+
+    debug = False
+
+    def enable(self):
+        self.debug = True
+
+    def disable(self):
+        self.debug = False
+
+
+@wraps(compute)
+def wrapped(*args, **kwargs):
+    return compute(*args, **kwargs)
+
+
+result = long_signature(
+    argument_one=1,
+    argument_two=2,
+    argument_three=3,
+    argument_four=4,
+    argument_five=5,
+)

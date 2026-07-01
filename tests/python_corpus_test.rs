@@ -1,15 +1,15 @@
-// Python has no in-repo formatter to diff against yet (src/formatter/python.rs
-// is a stub — see its module docs), so these fixtures are PEP8/flake8-clean
-// and `ruff format`-idempotent by construction: the stub's identity
-// passthrough already matches `.expected`. As python.rs grows real emission
-// logic, add fixtures that need actual rewriting and update `.expected` to
-// what `ruff format` produces, same as tests/rust_corpus does for rustfmt.
+// `.py` inputs here range from already-clean to deliberately messy; `.expected`
+// files are what `moldy` (default Config, i.e. the PEP8/79-col target) should
+// produce, generated with `ruff format --line-length 79` and hand-verified —
+// same static-fixture pattern tests/rust_corpus uses for rustfmt.
 //
 // `python_corpus_matches_ruff_and_flake8` (ignored by default) shells out to
-// the real `ruff` and `flake8` binaries to confirm the fixtures still hold
-// that property — it's not run as part of `cargo test` because CI/dev
-// environments aren't guaranteed to have either installed. Run explicitly
-// with `cargo test --test python_corpus_test -- --ignored` when iterating on
+// the real `ruff` and `flake8` binaries to confirm every `.expected` is
+// itself ruff-format-idempotent and flake8-clean — i.e. that the target
+// we're diffing against is actually correct, not just self-consistent. It's
+// not run as part of `cargo test` because CI/dev environments aren't
+// guaranteed to have either tool installed. Run explicitly with
+// `cargo test --test python_corpus_test -- --ignored` when iterating on
 // python.rs or the corpus.
 
 use moldy::config::Config;
@@ -34,6 +34,13 @@ fn corpus_files() -> Vec<PathBuf> {
         .collect();
     files.sort();
     files
+}
+
+fn expected_files() -> Vec<PathBuf> {
+    corpus_files()
+        .iter()
+        .map(|p| p.with_extension("py.expected"))
+        .collect()
 }
 
 #[test]
@@ -96,18 +103,19 @@ fn python_corpus_idempotent() {
 #[test]
 #[ignore = "requires ruff and flake8 on PATH; run explicitly when iterating on python.rs"]
 fn python_corpus_matches_ruff_and_flake8() {
-    let files = corpus_files();
+    let files = expected_files();
     assert!(!files.is_empty());
 
     for path in &files {
         let ruff = Command::new("ruff")
-            .args(["format", "--check"])
+            .args(["format", "--check", "--line-length", "79"])
             .arg(path)
             .status()
             .unwrap_or_else(|e| panic!("failed to run ruff on {}: {e}", path.display()));
         assert!(
             ruff.success(),
-            "{} is not ruff-format-clean; regenerate its .expected from `ruff format`",
+            "{} is not ruff-format-clean at 79 cols; regenerate it with \
+             `ruff format --line-length 79`",
             path.display()
         );
 
