@@ -19,8 +19,12 @@ struct Cli {
     files: Vec<PathBuf>,
 
     /// Path to TOML config file (default: look for moldy.toml in cwd).
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", conflicts_with = "preset")]
     config: Option<PathBuf>,
+
+    /// Use a built-in style preset instead of a config file (e.g. "linux-kernel", "riot").
+    #[arg(long, value_name = "NAME")]
+    preset: Option<String>,
 
     /// Edit file(s) in place instead of writing to stdout.
     #[arg(short = 'i', long)]
@@ -46,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("--check and --in-place are mutually exclusive");
     }
 
-    let config = load_config(cli.config.as_deref())?;
+    let config = load_config(cli.config.as_deref(), cli.preset.as_deref())?;
     let expanded = expand_paths(&cli.files, cli.recursive, &config)?;
 
     let mut any_changed = false;
@@ -88,7 +92,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_config(explicit: Option<&Path>) -> anyhow::Result<Config> {
+fn load_config(explicit: Option<&Path>, preset: Option<&str>) -> anyhow::Result<Config> {
+    if let Some(name) = preset {
+        return Ok(moldy::presets::load(name)?);
+    }
     if let Some(p) = explicit {
         return Ok(Config::load(p)?);
     }

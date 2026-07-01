@@ -59,8 +59,12 @@ impl Config {
             path: path.display().to_string(),
             source: e,
         })?;
-        toml::from_str(&text).map_err(|e| MoldyError::Config {
-            path: path.display().to_string(),
+        Self::parse(&text, &path.display().to_string())
+    }
+
+    pub fn parse(text: &str, label: &str) -> Result<Self, MoldyError> {
+        toml::from_str(text).map_err(|e| MoldyError::Config {
+            path: label.to_string(),
             source: e,
         })
     }
