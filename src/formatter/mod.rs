@@ -1,4 +1,5 @@
 mod c_cpp;
+mod rust;
 
 use std::path::Path;
 
@@ -17,6 +18,7 @@ pub fn format_source(path: &Path, source: &str, config: &Config) -> Result<Strin
 
     match info.key {
         "c" | "cpp" => c_cpp::format(source, info.key, config),
+        "rust" => rust::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
     }
 }

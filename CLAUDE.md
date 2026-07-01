@@ -34,6 +34,7 @@ todo-sqlite-cli done <id>   # after committing
 | `src/error.rs` | `MoldyError` (thiserror). `Parse`, `Format`, `Config`, `Io`, `NotUtf8`, `UnsupportedLanguage` variants. |
 | `src/formatter/mod.rs` | `Formatter` trait. `format_source(path, source, config)` dispatch. `dump_tree(path, source)` debug printer. |
 | `src/formatter/c_cpp.rs` | C/C++ formatter. **Currently a stub** — parses with tree-sitter, returns source unchanged. Main implementation target. |
+| `src/formatter/rust.rs` | Rust formatter. No funky reference exists (funky is C/C++ only), so this isn't a parity target — it's the proof that a new language costs one `format()` function plus a feature flag on the substrate. Single recursive `emit_node` with pairwise token spacing (`ws_before`) for the bulk of the grammar, plus dedicated handlers only for constructs that need real indentation/newline logic (blocks, item lists, struct/enum bodies, match arms, where-clauses, bracketed comma lists). Attributes and macro invocations are treated opaquely, mirroring this codebase's C-preprocessor invariant. Corpus tests in `tests/rust_corpus/` are self-referential (no funky to diff against) plus an idempotency check. |
 
 ## The C/C++ formatter — what needs to be built
 

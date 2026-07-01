@@ -1,0 +1,69 @@
+// A doc comment
+//! Module doc
+use std::collections::HashMap;
+use std::fmt::{self, Display};
+
+#[derive(Debug, Clone)]
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub enum Shape {
+    Circle(f64),
+    Rect { w: f64, h: f64 },
+    Unit,
+}
+
+impl Point {
+    pub fn new(x: i32, y: i32) -> Self {
+        Point { x, y }
+    }
+
+    fn distance(&self, other: &Point) -> f64 {
+        let dx = (self.x - other.x) as f64;
+        let dy = (self.y - other.y) as f64;
+        (dx * dx + dy * dy).sqrt()
+    }
+}
+
+pub trait Greet {
+    fn greet(&self) -> String {
+        String::from("hi")
+    }
+}
+
+fn classify(n: i32) -> &'static str {
+    match n {
+        0 => "zero",
+        n if n < 0 => "negative",
+        _ => "positive",
+    }
+}
+
+fn main() {
+    let mut map: HashMap<String, i32> = HashMap::new();
+    map.insert("a".to_string(), 1);
+
+    for (k, v) in &map {
+        if *v > 0 {
+            println!("{}: {}", k, v);
+        } else {
+            continue;
+        }
+    }
+
+    let mut i = 0;
+    while i < 10 {
+        i += 1;
+    }
+
+    let closure = |x: i32, y: i32| -> i32 { x + y };
+    let sum = closure(1, 2);
+
+    let v = vec![1, 2, 3];
+    let doubled: Vec<i32> = v.iter().map(|x| x * 2).collect();
+
+    let p = Point::new(1, 2);
+    println!("{}", p.distance(&Point::new(0, 0)));
+}
