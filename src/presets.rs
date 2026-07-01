@@ -19,6 +19,10 @@ const PRESETS: &[Preset] = &[
         name: "riot",
         toml: include_str!("../presets/riot.toml"),
     },
+    Preset {
+        name: "rustfmt-compat",
+        toml: include_str!("../presets/rustfmt-compat.toml"),
+    },
 ];
 
 /// Names of all built-in presets, for `--help` text and error messages.
@@ -51,5 +55,15 @@ mod tests {
     #[test]
     fn unknown_preset_errors() {
         assert!(load("does-not-exist").is_err());
+    }
+
+    #[test]
+    fn rustfmt_compat_enables_rust_knobs() {
+        let cfg = load("rustfmt-compat").unwrap();
+        assert!(cfg.rust.width_based_wrapping);
+        assert!(cfg.rust.collapse_field_lists);
+        assert_eq!(cfg.rust.max_width, 100);
+        assert_eq!(cfg.indent.width, 4);
+        assert_eq!(cfg.newlines.max_blank_lines, 1);
     }
 }

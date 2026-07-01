@@ -1,0 +1,33 @@
+# rustfmt-compatible mode
+#
+# Configures moldy to make the same layout choices as `cargo fmt` defaults:
+# 4-space indentation, at most one consecutive blank line, width-based
+# wrapping of bracketed comma lists (call args, tuples, arrays, generics,
+# ...), and collapsing short struct/enum field lists onto one line when they
+# fit. Intended for repos that want to replace `cargo fmt` with `moldy`
+# outright, not run both on the same files. rustfmt's "fill" mode (packing
+# multiple items per line, rather than one-per-line-or-all-inline) is not
+# implemented — see the `src/formatter/rust.rs` entry in CLAUDE.md.
+#
+# C/C++-only sections (braces, spacing, preprocessor, comments) are left at
+# moldy's defaults; they have no effect on `.rs` files.
+
+[indent]
+style = "spaces"
+width = 4
+indent_switch_case = true
+indent_goto_labels = false
+
+[newlines]
+style = "lf"
+max_blank_lines = 1
+final_newline = true
+blank_line_after_var_decl_block = true
+blank_line_after_open_brace = false
+merge_line_comment = false
+nl_brace_else = true
+
+[rust]
+max_width = 100
+width_based_wrapping = true
+collapse_field_lists = true
