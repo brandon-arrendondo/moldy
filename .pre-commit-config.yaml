@@ -40,8 +40,8 @@ repos:
   #   args: [--aird-threshold=85, --cognitive-threshold=20]
   # ws_before is a whitespace-policy dispatch table mirroring funky's full
   # formatter logic; AIRD ~92 is expected and acceptable for this function.
-  - repo: https://github.com/brandon-arrendondo/knots
-    rev: v1.10.0
+  - repo: https://github.com/brandon-arrendondo/knots-pre-commit
+    rev: v1.13.1
     hooks:
       - id: knots
         types: [rust]
