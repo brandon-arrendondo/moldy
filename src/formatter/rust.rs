@@ -19,6 +19,7 @@
 // Attributes and macro invocations are treated as opaque, verbatim text —
 // the same invariant this codebase already applies to C preprocessor lines.
 
+use super::output::OutputOps;
 use crate::config::Config;
 use crate::error::MoldyError;
 use tree_sitter::Node;
@@ -79,6 +80,28 @@ struct Fmt<'a> {
     depth: u32,
 }
 
+impl<'a> OutputOps<'a> for Fmt<'a> {
+    fn src(&self) -> &'a str {
+        self.src
+    }
+
+    fn config(&self) -> &Config {
+        self.config
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    fn out(&self) -> &str {
+        &self.out
+    }
+
+    fn out_mut(&mut self) -> &mut String {
+        &mut self.out
+    }
+}
+
 impl<'a> Fmt<'a> {
     fn new(src: &'a str, config: &'a Config) -> Self {
         Fmt {
@@ -87,74 +110,6 @@ impl<'a> Fmt<'a> {
             out: String::with_capacity(src.len()),
             depth: 0,
         }
-    }
-
-    fn finish(mut self) -> String {
-        let trimmed_len = self.out.trim_end_matches(['\n', '\r', ' ', '\t']).len();
-        self.out.truncate(trimmed_len);
-        if self.config.newlines.final_newline && !self.out.is_empty() {
-            self.out.push('\n');
-        }
-        self.out
-    }
-
-    // ── Output primitives ─────────────────────────────────────────────────
-
-    fn indent_str_at(&self, d: u32) -> String {
-        use crate::config::IndentStyle;
-        match self.config.indent.style {
-            IndentStyle::Spaces => " ".repeat(self.config.indent.width as usize * d as usize),
-            IndentStyle::Tabs => "\t".repeat(d as usize),
-        }
-    }
-
-    fn raw(&mut self, s: &str) {
-        if s.is_empty() {
-            return;
-        }
-        self.out.push_str(s);
-    }
-
-    fn nl(&mut self) {
-        self.out.push('\n');
-    }
-
-    fn ensure_nl(&mut self) {
-        if !self.out.is_empty() && !self.out.ends_with('\n') {
-            self.nl();
-        }
-    }
-
-    fn emit_indent(&mut self) {
-        let s = self.indent_str_at(self.depth);
-        self.raw(&s);
-    }
-
-    fn space_raw(&mut self) {
-        if !self.out.is_empty() && !self.out.ends_with(' ') && !self.out.ends_with('\n') {
-            self.out.push(' ');
-        }
-    }
-
-    fn node_text(&self, node: Node) -> &'a str {
-        &self.src[node.start_byte()..node.end_byte()]
-    }
-
-    /// Column (in `char`s) of the current end of output, for width budgeting.
-    fn current_column(&self) -> usize {
-        match self.out.rfind('\n') {
-            Some(i) => self.out[i + 1..].chars().count(),
-            None => self.out.chars().count(),
-        }
-    }
-
-    /// Render `f` into a scratch buffer instead of `self.out`, returning what
-    /// it produced. Used to measure a candidate single-line rendering before
-    /// committing to it (width-based wrapping, field-list collapsing).
-    fn render_scratch<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
-        let saved = std::mem::take(&mut self.out);
-        f(self);
-        std::mem::replace(&mut self.out, saved)
     }
 
     /// Count blank lines in source between `prev_end` and `start`, capped at
@@ -173,13 +128,6 @@ impl<'a> Fmt<'a> {
             newlines.saturating_sub(1)
         };
         blanks.min(self.config.newlines.max_blank_lines as usize)
-    }
-
-    fn emit_blank_lines(&mut self, n: usize) {
-        self.ensure_nl();
-        for _ in 0..n {
-            self.nl();
-        }
     }
 
     // ── Item / statement sequencing (shared by source_file, blocks, and
@@ -228,7 +176,7 @@ impl<'a> Fmt<'a> {
             }
             "block" | "declaration_list" => self.emit_brace_block(node),
             "field_declaration_list" | "enum_variant_list" => self.emit_multiline_field_list(node),
-            "match_block" => self.emit_match_block(node),
+            "match_block" => self.emit_brace_block(node),
             "where_clause" => self.emit_where_clause(node),
             k if bracket_delims(k).is_some() => self.emit_bracket_list(node),
             _ => self.emit_generic(node),
@@ -254,7 +202,7 @@ impl<'a> Fmt<'a> {
         for &child in group {
             match self.ws_before(child, prev, parent) {
                 Ws::None => {}
-                Ws::Space => self.space_raw(),
+                Ws::Space => self.space(),
                 Ws::Newline => {
                     self.ensure_nl();
                     self.emit_indent();
@@ -354,8 +302,9 @@ impl<'a> Fmt<'a> {
 
     // ── Structural containers ─────────────────────────────────────────────
 
-    /// `{ ... }` bodies with no other syntax of their own: blocks, and
-    /// impl/trait/mod bodies (`declaration_list`).
+    /// `{ ... }` bodies with no other syntax of their own: blocks,
+    /// impl/trait/mod bodies (`declaration_list`), and match arm lists
+    /// (`match_block`).
     fn emit_brace_block(&mut self, node: Node) {
         let mut cursor = node.walk();
         let children: Vec<Node> = node.children(&mut cursor).collect();
@@ -484,36 +433,6 @@ impl<'a> Fmt<'a> {
     /// source's `match_arm` already carries (tree-sitter's grammar makes it
     /// optional exactly when the arm body is a block), so no comma logic is
     /// needed here — just indentation.
-    fn emit_match_block(&mut self, node: Node) {
-        let mut cursor = node.walk();
-        let children: Vec<Node> = node.children(&mut cursor).collect();
-        let start_i = if children.first().map(|n| n.kind()) == Some("{") {
-            1
-        } else {
-            0
-        };
-        let end_i = if children.last().map(|n| n.kind()) == Some("}") {
-            children.len() - 1
-        } else {
-            children.len()
-        };
-        let items = &children[start_i..end_i];
-
-        if items.is_empty() {
-            self.raw("{}");
-            return;
-        }
-
-        self.raw("{");
-        self.nl();
-        self.depth += 1;
-        self.emit_item_sequence(items);
-        self.depth -= 1;
-        self.ensure_nl();
-        self.emit_indent();
-        self.raw("}");
-    }
-
     /// `where` clauses always break: `where` on its own line, one bound per
     /// line indented, trailing comma on each — matching rustfmt's default
     /// style for any function that has one at all.

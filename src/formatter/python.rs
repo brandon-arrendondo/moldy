@@ -26,6 +26,7 @@
 //     source already has a trailing comma) is not implemented — the break
 //     decision is width-only.
 
+use super::output::OutputOps;
 use crate::config::Config;
 use crate::error::MoldyError;
 use tree_sitter::Node;
@@ -123,6 +124,28 @@ struct Fmt<'a> {
     depth: u32,
 }
 
+impl<'a> OutputOps<'a> for Fmt<'a> {
+    fn src(&self) -> &'a str {
+        self.src
+    }
+
+    fn config(&self) -> &Config {
+        self.config
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    fn out(&self) -> &str {
+        &self.out
+    }
+
+    fn out_mut(&mut self) -> &mut String {
+        &mut self.out
+    }
+}
+
 impl<'a> Fmt<'a> {
     fn new(src: &'a str, config: &'a Config) -> Self {
         Fmt {
@@ -131,70 +154,6 @@ impl<'a> Fmt<'a> {
             out: String::with_capacity(src.len()),
             depth: 0,
         }
-    }
-
-    fn finish(mut self) -> String {
-        let trimmed_len = self.out.trim_end_matches(['\n', '\r', ' ', '\t']).len();
-        self.out.truncate(trimmed_len);
-        if self.config.newlines.final_newline && !self.out.is_empty() {
-            self.out.push('\n');
-        }
-        self.out
-    }
-
-    // ── Output primitives ─────────────────────────────────────────────────
-
-    fn indent_str_at(&self, d: u32) -> String {
-        use crate::config::IndentStyle;
-        match self.config.indent.style {
-            IndentStyle::Spaces => " ".repeat(self.config.indent.width as usize * d as usize),
-            IndentStyle::Tabs => "\t".repeat(d as usize),
-        }
-    }
-
-    fn raw(&mut self, s: &str) {
-        if s.is_empty() {
-            return;
-        }
-        self.out.push_str(s);
-    }
-
-    fn nl(&mut self) {
-        self.out.push('\n');
-    }
-
-    fn ensure_nl(&mut self) {
-        if !self.out.is_empty() && !self.out.ends_with('\n') {
-            self.nl();
-        }
-    }
-
-    fn emit_indent(&mut self) {
-        let s = self.indent_str_at(self.depth);
-        self.raw(&s);
-    }
-
-    fn space_raw(&mut self) {
-        if !self.out.is_empty() && !self.out.ends_with(' ') && !self.out.ends_with('\n') {
-            self.out.push(' ');
-        }
-    }
-
-    fn node_text(&self, node: Node) -> &'a str {
-        &self.src[node.start_byte()..node.end_byte()]
-    }
-
-    fn current_column(&self) -> usize {
-        match self.out.rfind('\n') {
-            Some(i) => self.out[i + 1..].chars().count(),
-            None => self.out.chars().count(),
-        }
-    }
-
-    fn render_scratch<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
-        let saved = std::mem::take(&mut self.out);
-        f(self);
-        std::mem::replace(&mut self.out, saved)
     }
 
     /// Blank lines allowed between statements at the current depth: PEP8
@@ -222,13 +181,6 @@ impl<'a> Fmt<'a> {
             newlines.saturating_sub(1)
         };
         blanks.min(self.blank_line_cap())
-    }
-
-    fn emit_blank_lines(&mut self, n: usize) {
-        self.ensure_nl();
-        for _ in 0..n {
-            self.nl();
-        }
     }
 
     // ── Statement sequencing (module body and block bodies) ────────────────
@@ -316,7 +268,7 @@ impl<'a> Fmt<'a> {
         for &child in group {
             match self.ws_before(child, prev, parent) {
                 Ws::None => {}
-                Ws::Space => self.space_raw(),
+                Ws::Space => self.space(),
                 Ws::Newline => {
                     self.ensure_nl();
                     self.emit_indent();

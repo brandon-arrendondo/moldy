@@ -3,7 +3,8 @@
 // Goal: produce output identical to funky for all C/C++ files.
 // Reference: ../funky/src/formatter.rs  (config is intentionally identical)
 
-use crate::config::{Config, IndentStyle, PointerAlign, SpaceOption};
+use super::output::OutputOps;
+use crate::config::{Config, PointerAlign, SpaceOption};
 use crate::error::MoldyError;
 use tree_sitter::Node;
 
@@ -75,6 +76,36 @@ struct Fmt<'a> {
     assign_col_for_brace: Option<usize>,
 }
 
+impl<'a> OutputOps<'a> for Fmt<'a> {
+    fn src(&self) -> &'a str {
+        self.src
+    }
+
+    fn config(&self) -> &Config {
+        self.config
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    fn out(&self) -> &str {
+        &self.out
+    }
+
+    fn out_mut(&mut self) -> &mut String {
+        &mut self.out
+    }
+
+    fn at_bol(&self) -> bool {
+        self.at_bol
+    }
+
+    fn set_at_bol(&mut self, at_bol: bool) {
+        self.at_bol = at_bol;
+    }
+}
+
 impl<'a> Fmt<'a> {
     fn new(src: &'a str, config: &'a Config) -> Self {
         Fmt {
@@ -91,57 +122,11 @@ impl<'a> Fmt<'a> {
         }
     }
 
-    fn finish(mut self) -> String {
-        let trimmed_len = self.out.trim_end_matches(['\n', '\r', ' ', '\t']).len();
-        self.out.truncate(trimmed_len);
-        if self.config.newlines.final_newline && !self.out.is_empty() {
-            self.out.push('\n');
-        }
-        self.out
-    }
-
     // ── Output primitives ─────────────────────────────────────────────────────
-
-    fn indent_str_at(&self, d: u32) -> String {
-        match self.config.indent.style {
-            IndentStyle::Spaces => " ".repeat(self.config.indent.width as usize * d as usize),
-            IndentStyle::Tabs => "\t".repeat(d as usize),
-        }
-    }
-
-    fn raw(&mut self, s: &str) {
-        if s.is_empty() {
-            return;
-        }
-        self.out.push_str(s);
-        self.at_bol = s.ends_with('\n');
-    }
-
-    fn nl(&mut self) {
-        self.out.push('\n');
-        self.at_bol = true;
-    }
-
-    fn ensure_nl(&mut self) {
-        if !self.at_bol {
-            self.nl();
-        }
-    }
-
-    fn emit_indent(&mut self) {
-        let s = self.indent_str_at(self.depth);
-        self.raw(&s);
-    }
 
     fn emit_indent_at(&mut self, d: u32) {
         let s = self.indent_str_at(d);
         self.raw(&s);
-    }
-
-    fn space(&mut self) {
-        if !self.at_bol && !self.out.ends_with(' ') && !self.out.ends_with('\n') {
-            self.out.push(' ');
-        }
     }
 
     /// Current column (0-indexed) in the output buffer.
@@ -165,10 +150,6 @@ impl<'a> Fmt<'a> {
 
     // ── Source text ───────────────────────────────────────────────────────────
 
-    fn node_text<'t>(&self, node: Node<'t>) -> &'a str {
-        &self.src[node.start_byte()..node.end_byte()]
-    }
-
     /// Count blank lines in source between `prev_end` and `start`.
     fn source_blanks(&self, prev_end: usize, start: usize) -> usize {
         if start <= prev_end {
@@ -187,13 +168,6 @@ impl<'a> Fmt<'a> {
             newlines.saturating_sub(1)
         };
         blanks.min(self.config.newlines.max_blank_lines as usize)
-    }
-
-    fn emit_blank_lines(&mut self, n: usize) {
-        self.ensure_nl();
-        for _ in 0..n {
-            self.nl();
-        }
     }
 
     // ── Translation unit ──────────────────────────────────────────────────────
@@ -809,8 +783,8 @@ impl<'a> Fmt<'a> {
             "goto_statement" => self.emit_goto_statement(node),
             "labeled_statement" => self.emit_labeled_statement(node),
             "expression_statement" => self.emit_expression_statement(node),
-            "declaration" => self.emit_decl_node(node),
-            "type_definition" => self.emit_typedef_node(node),
+            "declaration" => self.emit_decl_children(node),
+            "type_definition" => self.emit_decl_children(node),
             "function_definition" => self.emit_function_definition(node),
             "template_declaration" => {
                 self.emit_template_declaration(node);
@@ -1515,11 +1489,11 @@ impl<'a> Fmt<'a> {
         self.emit_indent();
         match node.kind() {
             "declaration" => {
-                self.emit_decl_node(node);
+                self.emit_decl_children(node);
                 self.nl();
             }
             "type_definition" => {
-                self.emit_typedef_node(node);
+                self.emit_decl_children(node);
                 self.nl();
             }
             _ => {
@@ -1660,7 +1634,7 @@ impl<'a> Fmt<'a> {
                 "declaration" => {
                     self.nl();
                     self.emit_indent();
-                    self.emit_decl_node(child);
+                    self.emit_decl_children(child);
                     self.nl();
                     return;
                 }
@@ -1803,8 +1777,8 @@ impl<'a> Fmt<'a> {
 
     fn emit_class_member(&mut self, node: Node) {
         match node.kind() {
-            "declaration" => self.emit_decl_node(node),
-            "type_definition" => self.emit_typedef_node(node),
+            "declaration" => self.emit_decl_children(node),
+            "type_definition" => self.emit_decl_children(node),
             "field_declaration" => self.emit_field_declaration(node),
             _ => {
                 let mut leaves = vec![];
@@ -1890,14 +1864,6 @@ impl<'a> Fmt<'a> {
     }
 
     // ── Declaration / typedef ─────────────────────────────────────────────────
-
-    fn emit_decl_node(&mut self, node: Node) {
-        self.emit_decl_children(node);
-    }
-
-    fn emit_typedef_node(&mut self, node: Node) {
-        self.emit_decl_children(node);
-    }
 
     fn emit_decl_children(&mut self, node: Node) {
         // Walk the declaration's children, expanding struct/union/enum bodies.
