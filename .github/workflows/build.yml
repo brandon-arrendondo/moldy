@@ -118,7 +118,7 @@ jobs:
           cp README.md "${ARTIFACT_DIR}/" 2>/dev/null || true
           cp LICENSE "${ARTIFACT_DIR}/" 2>/dev/null || true
           cp THIRD_PARTY_LICENSES.txt "${ARTIFACT_DIR}/"
-          cp moldy.cdx.json "${ARTIFACT_DIR}/"
+          cp moldy-fmt.cdx.json "${ARTIFACT_DIR}/"
           echo "=== Artifacts staged ==="
           ls -lhR "${ARTIFACT_DIR}/"
           echo "ARTIFACT_DIR=${ARTIFACT_DIR}" >> $GITHUB_ENV
@@ -133,7 +133,7 @@ jobs:
           Copy-Item "README.md" -Destination $ARTIFACT_DIR -ErrorAction SilentlyContinue
           Copy-Item "LICENSE" -Destination $ARTIFACT_DIR -ErrorAction SilentlyContinue
           Copy-Item "THIRD_PARTY_LICENSES.txt" -Destination $ARTIFACT_DIR
-          Copy-Item "moldy.cdx.json" -Destination $ARTIFACT_DIR
+          Copy-Item "moldy-fmt.cdx.json" -Destination $ARTIFACT_DIR
           Write-Host "=== Artifacts staged ==="
           Get-ChildItem $ARTIFACT_DIR
           echo "ARTIFACT_DIR=${ARTIFACT_DIR}" >> $env:GITHUB_ENV
@@ -240,7 +240,7 @@ jobs:
           cp LICENSE "${PKG_DIR}/usr/share/doc/moldy/copyright"
           cp "artifacts/moldy-linux-x64-${VERSION}/THIRD_PARTY_LICENSES.txt" \
              "${PKG_DIR}/usr/share/doc/moldy/"
-          cp "artifacts/moldy-linux-x64-${VERSION}/moldy.cdx.json" \
+          cp "artifacts/moldy-linux-x64-${VERSION}/moldy-fmt.cdx.json" \
              "${PKG_DIR}/usr/share/doc/moldy/"
 
           dpkg-deb --build --root-owner-group "${PKG_DIR}"
@@ -262,7 +262,7 @@ jobs:
           cp README.md "${TARDIR}/doc/"
           cp LICENSE "${TARDIR}/doc/"
           cp "artifacts/moldy-linux-x64-${VERSION}/THIRD_PARTY_LICENSES.txt" "${TARDIR}/doc/"
-          cp "artifacts/moldy-linux-x64-${VERSION}/moldy.cdx.json" "${TARDIR}/doc/"
+          cp "artifacts/moldy-linux-x64-${VERSION}/moldy-fmt.cdx.json" "${TARDIR}/doc/"
           cp doc/moldy.1 "${TARDIR}/man/"
           tar -czf "rpmbuild/SOURCES/moldy-${VERSION}.tar.gz" "${TARDIR}"
           rm -rf "${TARDIR}"
@@ -292,7 +292,7 @@ jobs:
           install -m 644 doc/README.md %{buildroot}%{_docdir}/%{name}/README.md
           install -m 644 doc/LICENSE %{buildroot}%{_docdir}/%{name}/LICENSE
           install -m 644 doc/THIRD_PARTY_LICENSES.txt %{buildroot}%{_docdir}/%{name}/THIRD_PARTY_LICENSES.txt
-          install -m 644 doc/moldy.cdx.json %{buildroot}%{_docdir}/%{name}/moldy.cdx.json
+          install -m 644 doc/moldy-fmt.cdx.json %{buildroot}%{_docdir}/%{name}/moldy-fmt.cdx.json
           install -m 644 man/moldy.1 %{buildroot}%{_mandir}/man1/moldy.1
 
           %files
@@ -300,7 +300,7 @@ jobs:
           %{_mandir}/man1/moldy.1*
           %doc %{_docdir}/%{name}/README.md
           %doc %{_docdir}/%{name}/THIRD_PARTY_LICENSES.txt
-          %doc %{_docdir}/%{name}/moldy.cdx.json
+          %doc %{_docdir}/%{name}/moldy-fmt.cdx.json
           %license %{_docdir}/%{name}/LICENSE
           SPEC_EOF
 
@@ -333,7 +333,7 @@ jobs:
           cp LICENSE "${APPDIR}/usr/share/doc/moldy/"
           cp "artifacts/moldy-linux-x64-${VERSION}/THIRD_PARTY_LICENSES.txt" \
              "${APPDIR}/usr/share/doc/moldy/"
-          cp "artifacts/moldy-linux-x64-${VERSION}/moldy.cdx.json" \
+          cp "artifacts/moldy-linux-x64-${VERSION}/moldy-fmt.cdx.json" \
              "${APPDIR}/usr/share/doc/moldy/"
 
           cat > "${APPDIR}/moldy.desktop" << EOF
