@@ -1,10 +1,14 @@
 [package]
-name = "moldy"
+name = "moldy-fmt"
 version = "0.1.0"
 edition = "2021"
 description = "Multi-language code formatter built on tree-sitter"
 license = "MIT"
 authors = ["Brandon Arrendondo <brandon.arrendondo@bissell.com>"]
+repository = "https://github.com/brandon-arrendondo/moldy"
+readme = "README.md"
+keywords = ["formatter", "tree-sitter", "cli", "multi-language"]
+categories = ["development-tools", "command-line-utilities"]
 
 [lib]
 name = "moldy"
