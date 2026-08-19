@@ -8,15 +8,19 @@ use std::path::Path;
 
 use crate::error::MoldyError;
 
+/// Parsed `toolchain.toml` — currently just the shared ignore-path list.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct ToolchainConfig {
+    /// Files/directories every tool sharing this `toolchain.toml` should skip.
     pub ignore: ToolchainIgnore,
 }
 
+/// The `[ignore]` section of `toolchain.toml`.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct ToolchainIgnore {
+    /// Glob patterns matched against a candidate path.
     pub paths: Vec<String>,
 }
 

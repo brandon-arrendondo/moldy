@@ -8,7 +8,9 @@ use std::path::Path;
 use crate::config::Config;
 use crate::error::MoldyError;
 
+/// A per-language formatter implementation.
 pub trait Formatter {
+    /// Reformat `source` per `config`, returning the formatted text.
     fn format(&self, source: &str, config: &Config) -> Result<String, MoldyError>;
 }
 
