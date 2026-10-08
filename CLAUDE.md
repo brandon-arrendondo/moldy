@@ -1,5 +1,7 @@
 # moldy
 
+@AGENTS.md
+
 Multi-language code formatter built on tree-sitter. Uses
 `lang-parsing-substrate` (`../lang_parsing_substrate`) for language detection
 and tree-sitter grammar access.

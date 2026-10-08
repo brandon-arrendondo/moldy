@@ -1,3 +1,6 @@
 /target
 todo-sqlite-cli.db
 lcov.info
+
+# Python agent-policy test bytecode
+scripts/__pycache__/
