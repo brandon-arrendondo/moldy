@@ -32,7 +32,7 @@ Directories require `--recursive`; otherwise Moldy warns and skips them. Recursi
 
 ## Output and exits
 
-Inputs must be UTF-8 files. Stdin is not implemented; `-` is currently treated as a filesystem path. File errors, unsupported languages, malformed configuration, and incompatible flags terminate processing. Files already written with `--in-place` are not rolled back if a later file fails.
+Inputs must be UTF-8 files. Stdin is not implemented; `-` is currently treated as a filesystem path. File errors, unsupported languages, malformed configuration, and incompatible flags terminate processing. An explicitly supplied unsupported file reports its path, for example `unsupported language for: a.js`. Files already written with `--in-place` are not rolled back if a later file fails.
 
 Successful execution returns 0, including a scan where no files were selected. `--check` returns 1 if any file would change. Runtime errors return 1; clap argument errors return 2. A check that selects no files does not establish that the project is formatted.
 

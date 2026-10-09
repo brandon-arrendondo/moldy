@@ -8,7 +8,7 @@ A tree-sitter based formatter for C, C++, Rust, and Python. C/C++ formatting tar
 cargo install moldy-fmt --locked
 ```
 
-To build this checkout with the updated dependency:
+To build from source:
 
 ```sh
 cargo build --release --locked
@@ -75,7 +75,7 @@ repos:
       - id: moldy  # runs moldy --in-place
 ```
 
-Pin a released tag when using the hook. The dependency and documentation updates in this checkout are not part of `v0.1.0`.
+Pin a released tag when using the hook; choose the release whose behavior you want to use.
 
 ## Relationship to funky
 

@@ -1,10 +1,10 @@
 # Development and verification
 
-Read [AGENTS.md](../AGENTS.md) and the technical guide [CLAUDE.md](../CLAUDE.md) before contributing. Repository policy is kept in AGENTS.md. Check the task tracker as instructed there; if its marker points to an unavailable database, report that limitation rather than creating a replacement database.
+Read [AGENTS.md](../AGENTS.md) and the technical guide [CLAUDE.md](../CLAUDE.md) before contributing. Repository policy is kept in AGENTS.md.
 
 ## Setup
 
-Use stable Rust with Cargo, a C/C++ compiler, Python 3, and pre-commit. The substrate refresh was checked with Rust 1.95.0; no MSRV is declared.
+Use the Rust 1.95.0 toolchain pinned in `rust-toolchain.toml`, Cargo, a C/C++ compiler, Python 3, and pre-commit. Rustup selects the pinned toolchain in this checkout and in CI.
 
 ```sh
 rustup component add rustfmt clippy llvm-tools-preview

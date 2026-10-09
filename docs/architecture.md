@@ -2,7 +2,7 @@
 
 Moldy owns formatting policy. `lang-parsing-substrate` owns the language registry, tree-sitter grammar access, extension predicates, and the `PathIgnore` glob matcher used for file selection.
 
-The dependency is version 0.11.2, matching the Knots refresh. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, and `lang-python`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
+Moldy uses `lang-parsing-substrate` 0.11.2. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, and `lang-python`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
 
 ## Processing pipeline
 
