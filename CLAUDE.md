@@ -9,18 +9,9 @@ compatibility limits. See [documentation](README.md#documentation).
 
 ## Task tracking
 
-This repo uses `todo-sqlite-cli` (DB resolved via `.todo-sqlite-cli` marker).
-Always check before coding:
-
-```sh
-todo-sqlite-cli next
-todo-sqlite-cli list
-todo-sqlite-cli show <id>
-```
-
-Start the selected task before touching code with `todo-sqlite-cli start <id>`;
-after committing, mark it done with `todo-sqlite-cli done <id>`. If the database
-is unavailable, report it; do not create a replacement or change its marker.
+Tasks are tracked in the fleet database under project `moldy`. Follow the
+coordinator's assignment and report progress through the coordinator. There
+is no repository-local task database or `.todo-sqlite-cli` marker.
 
 ## Module structure
 
