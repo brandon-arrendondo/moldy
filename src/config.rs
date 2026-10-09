@@ -34,10 +34,9 @@ pub struct Config {
 
 // ── Python ───────────────────────────────────────────────────────────────────
 
-/// Knobs specific to `src/formatter/python.rs` (currently a stub — see the
-/// module docs there). Default matches PEP8/flake8 (`max_width = 79`); the
-/// `black` preset (`presets/python/black.toml`) moves it to 88 to match
-/// `ruff format`'s default.
+/// Knobs specific to the Python formatter in `src/formatter/python.rs`.
+/// Default matches PEP8/flake8 (`max_width = 79`); the `black` preset
+/// (`presets/python/black.toml`) moves it to 88 to match `ruff format`'s default.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct PythonConfig {

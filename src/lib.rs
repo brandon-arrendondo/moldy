@@ -1,6 +1,6 @@
-//! moldy's public library API: config loading, formatter dispatch, toolchain
-//! detection, and error types, re-exported from the modules below for
-//! consumers embedding moldy rather than invoking the `moldy` binary.
+//! moldy's public library API: config loading, formatter dispatch, shared
+//! ignore configuration, and error types. These modules serve consumers
+//! embedding moldy rather than invoking the `moldy` binary.
 
 #![warn(missing_docs)]
 
@@ -13,6 +13,5 @@ pub mod formatter;
 /// Bundled presets that override [`config::Config`] defaults to match an
 /// existing tool's output (e.g. `black`, `rustfmt`).
 pub mod presets;
-/// Toolchain detection (locating an external formatter to compare against
-/// or shell out to).
+/// Shared `toolchain.toml` ignore-path discovery.
 pub mod toolchain;

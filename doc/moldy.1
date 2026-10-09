@@ -1,4 +1,4 @@
-.TH MOLDY 1 "2026-06-30" "moldy 0.1.0" "User Commands"
+.TH MOLDY 1 "2026-10-09" "moldy 0.1.0" "User Commands"
 .SH NAME
 moldy \- multi-language code formatter built on tree-sitter
 .SH SYNOPSIS
@@ -16,8 +16,10 @@ or checks whether any file would change
 moldy uses tree-sitter to parse source files and is the spiritual successor
 to
 .BR funky (1).
-It supports C and C++ with the same formatting rules as funky, and is
-designed to expand to additional languages over time.
+It supports C, C++, Rust, and Python. C/C++ formatting targets funky's
+rules; checked-in corpus tests verify the expected output on those fixtures.
+Rust and Python presets implement selected rustfmt and Black-style policies,
+with compatibility limits described in the usage guide.
 .PP
 The formatter is Unicode-safe: identifiers, string literals, and comments
 containing multi-byte UTF-8 sequences (CJK characters, accented letters,
@@ -30,9 +32,10 @@ file in the current directory, or by the file given with
 All configuration keys are optional; built-in defaults are used for any
 keys that are absent.
 .PP
-Pass
-.B \-
-as a file argument to read from standard input and write to standard output.
+Inputs must be UTF-8 files with recognised extensions. Standard input is
+not implemented; a file argument of \- is treated as a filesystem path.
+Multiple formatted files are concatenated on standard output without
+filename separators.
 .SH OPTIONS
 .TP
 .BR \-i ", " \-\-in\-place
@@ -47,7 +50,8 @@ printed to standard error.
 .TP
 .BR \-r ", " \-\-recursive
 Recurse into directories, formatting all source files with recognised
-extensions.
+extensions. C .h headers are explicit-only and skipped by recursive
+discovery; .hpp and .hxx select C++ and are discovered recursively.
 .TP
 .BI \-c " FILE" "\fR,\fP " \-\-config " FILE"
 Load configuration from
@@ -55,6 +59,10 @@ Load configuration from
 instead of
 .I moldy.toml
 in the current directory.
+.TP
+.BI \-\-preset " NAME"
+Use a built-in preset instead of a config file. Names: linux-kernel, riot,
+rustfmt-compat, pep8, black. Conflicts with \-\-config.
 .TP
 .B \-\-dump\-tree
 Print the tree-sitter CST for each input file to standard output and exit.
@@ -73,9 +81,13 @@ See
 .B CONFIGURATION
 below.
 .SH CONFIGURATION
-All keys are optional.  A
+All keys are optional. Unknown configuration fields are rejected.
+To reuse a compatible C/C++ configuration in
 .I funky.toml
-file is also accepted (the two formats are identical for C/C++ formatting).
+pass \-\-config funky.toml; it is not loaded automatically.
+.PP
+The nearest toolchain.toml found by walking up from the current working
+directory contributes shared [ignore].paths, appended to Moldy's patterns.
 .PP
 .nf
 [indent]
@@ -91,7 +103,6 @@ cuddle_catch        = false
 collapse_empty_body = true
 fn_brace_newline    = true
 extern_c_brace      = "force_same_line"
-nl_brace_else       = true
 add_braces_to_if    = true
 add_braces_to_while = true
 add_braces_to_for   = true
@@ -109,6 +120,17 @@ align_enum_equ_span         = 1
 align_doxygen_cmt_span      = 1
 align_on_tabstop            = true
 
+[newlines]
+nl_brace_else = true
+
+[rust]
+max_width = 100
+width_based_wrapping = false
+collapse_field_lists = false
+
+[python]
+max_width = 79
+
 [ignore]
 patterns = ["vendor/**", "third_party/**", "*.pb.h"]
 .fi
@@ -123,6 +145,14 @@ mode, no file would change).
 In
 .B \-\-check
 mode: one or more files would change.  Otherwise: a fatal error occurred.
+.TP
+.B 2
+Command-line argument parsing failed.
+.SH LIMITATIONS
+Formatters continue over syntax-error trees; successful formatting does not
+validate syntax or guarantee malformed source is unchanged. An in-place
+error does not roll back files already written. A successful check with no
+selected files does not establish that any source was checked.
 .SH SEE ALSO
 .BR funky (1),
 .BR clang\-format (1),

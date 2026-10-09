@@ -15,7 +15,7 @@ use moldy::toolchain::ToolchainConfig;
     about = "Multi-language code formatter built on tree-sitter"
 )]
 struct Cli {
-    /// Source file(s) or director(ies) to format. Use `-` to read from stdin.
+    /// Source file(s) or directories to format.
     #[arg(required = true)]
     files: Vec<PathBuf>,
 

@@ -2,148 +2,120 @@
 
 @AGENTS.md
 
-Multi-language code formatter built on tree-sitter. Uses
-`lang-parsing-substrate` (`../lang_parsing_substrate`) for language detection
-and tree-sitter grammar access.
-
-**Immediate goal:** achieve full formatting parity with `funky` (`../funky`)
-for C and C++, then expand to the other languages the substrate supports.
-Once parity is confirmed, `funky` will be deprecated.
+Moldy is a tree-sitter based formatter for C, C++, Rust, and Python. The
+C/C++ formatter targets funky's formatting policy; corpus tests compare
+checked-in expected output. Rust and Python have separate fixtures and
+compatibility limits. See [documentation](README.md#documentation).
 
 ## Task tracking
 
 This repo uses `todo-sqlite-cli` (DB resolved via `.todo-sqlite-cli` marker).
+Always check before coding:
 
-**Always check before coding:**
-```
-todo-sqlite-cli next        # the one task to work on now
-todo-sqlite-cli list        # full active backlog
-todo-sqlite-cli show <id>   # details for a specific task
+```sh
+todo-sqlite-cli next
+todo-sqlite-cli list
+todo-sqlite-cli show <id>
 ```
 
-**When working:**
-```
-todo-sqlite-cli start <id>  # before touching code
-todo-sqlite-cli done <id>   # after committing
-```
+Start the selected task before touching code with `todo-sqlite-cli start <id>`;
+after committing, mark it done with `todo-sqlite-cli done <id>`. If the database
+is unavailable, report it; do not create a replacement or change its marker.
 
 ## Module structure
 
-| File | Purpose |
-|------|---------|
-| `src/main.rs` | CLI entry point (clap 4). `--in-place`, `--check`, `--config`, `--recursive`, `--dump-tree`. Uses substrate's `is_source_extension` for directory walks. |
-| `src/config.rs` | `Config` struct — **intentionally identical to funky's** so formatted output is comparable. Loaded from `moldy.toml`. |
-| `src/error.rs` | `MoldyError` (thiserror). `Parse`, `Format`, `Config`, `Io`, `NotUtf8`, `UnsupportedLanguage` variants. |
-| `src/formatter/mod.rs` | `Formatter` trait. `format_source(path, source, config)` dispatch. `dump_tree(path, source)` debug printer. |
-| `src/formatter/c_cpp.rs` | C/C++ formatter. **Currently a stub** — parses with tree-sitter, returns source unchanged. Main implementation target. |
-| `src/formatter/rust.rs` | Rust formatter. No funky reference exists (funky is C/C++ only), so this isn't a parity target — it's the proof that a new language costs one `format()` function plus a feature flag on the substrate. Single recursive `emit_node` with pairwise token spacing (`ws_before`) for the bulk of the grammar, plus dedicated handlers only for constructs that need real indentation/newline logic (blocks, item lists, struct/enum bodies, match arms, where-clauses, bracketed comma lists). Attributes and macro invocations are treated opaquely, mirroring this codebase's C-preprocessor invariant. Corpus tests in `tests/rust_corpus/` are self-referential (no funky to diff against) plus an idempotency check. `Config.rust` (`max_width`, `width_based_wrapping`, `collapse_field_lists`, all off/rustfmt-default-100 by default) moves the output toward rustfmt's own choices — width-based line breaking for bracketed comma lists and collapsing short struct/enum field lists — so a repo can configure moldy as a drop-in `cargo fmt` replacement instead of running both. rustfmt's "fill" mode (packing multiple items per line up to width, rather than one-per-line-or-all-inline) is not implemented. |
-| `src/formatter/python.rs` | Python formatter. Same architecture as `rust.rs`: generic `emit_node`/`ws_before` pairwise-spacing walk, with dedicated handlers for statement sequencing (PEP8 blank-line rules — 2 around top-level defs, 1 nested, 1 forced after a class's leading docstring), indented `block`s (tree-sitter-python has no NEWLINE/INDENT/DEDENT nodes, so indentation is our own depth counter), and bracketed comma lists that explode by width using Black's 3-tier "right-hand split" (single line → hug the whole body on one indented line → one item per line with a trailing comma). Also hugs `**` (no spaces) when both operands are simple names/literals/attribute chains, matching Black. No single reference tool exists (PEP8 is a style guide, not a formatter); the structural target is `ruff format` (Black-compatible), and `flake8` is used as a lint gate to confirm formatted output is PEP8-clean. `Config.python.max_width` defaults to 79 (PEP8/flake8); `--preset black` sets 88 to match `ruff format`. Known gaps: no string quote normalization (f-strings and all other strings are opaque verbatim text), comprehensions/subscripts/slices don't get width-based wrapping, and magic-trailing-comma preservation isn't implemented. `tests/python_corpus_test.rs` diffs against static `.expected` files (generated with `ruff format --line-length 79`, hand-verified) plus an `#[ignore]`d test that shells out to the real `ruff`/`flake8` binaries to confirm each `.expected` is itself ruff-format-idempotent and flake8-clean — run it explicitly with `cargo test --test python_corpus_test -- --ignored` when adding fixtures or emission logic. |
+| File | Responsibility |
+| --- | --- |
+| `src/main.rs` | clap CLI, config loading, shared ignore merge, recursive discovery, UTF-8 reads, output/check/write modes. |
+| `src/config.rs` | Formatting schema and defaults; C/C++ policies aim to match funky. |
+| `src/error.rs` | Public error types. |
+| `src/formatter/mod.rs` | Public `Formatter` trait, `format_source` dispatch, `dump_tree`. |
+| `src/formatter/c_cpp.rs` | Implemented C/C++ structural emitter, expression leaf walking, comment and enum alignment. |
+| `src/formatter/rust.rs` | Recursive emitter with pairwise spacing and structural handlers for blocks, lists, fields, match arms, and where clauses. |
+| `src/formatter/python.rs` | Recursive emitter with statement/block indentation and width-based bracketed-list wrapping. |
+| `src/formatter/output.rs` | Shared output operations. |
+| `src/presets.rs` | Embedded preset lookup. |
+| `src/toolchain.rs` | Discover nearest shared `toolchain.toml` from the working directory; deserialize only ignore paths. |
 
-## The C/C++ formatter — what needs to be built
+## Formatter invariants
 
-`src/formatter/c_cpp.rs` contains a `format()` function that currently
-returns the source unchanged. The goal is to make it produce output
-**identical to funky** for every C/C++ file in `../funky/tests/corpus/`.
+Tree-sitter stores tokens and source offsets, not formatting whitespace. Emit
+whitespace under `Config` and use node byte offsets to slice the matching source.
+Keep each parser tree paired with the original text it parsed. Preserve UTF-8
+boundaries. Use ancestor/structural context for indentation and punctuation.
+C preprocessor directives, Rust attributes/macros, and Python strings/f-strings
+have opaque emission paths. Do not introduce analysis dead-code blanking into
+formatting: text in inactive preprocessor branches must be retained.
 
-### Reference implementation
+Formatters currently continue over syntax errors. Unknown C/C++ nodes emit
+source text; the entire file is not guaranteed to pass through unchanged.
+Verify malformed fixtures when changing emission.
 
-| File | What to look at |
-|------|----------------|
-| `../funky/src/formatter.rs` | Full 7 600-line token-stream formatter — the behaviour spec |
-| `../funky/src/config.rs` | Config structs (identical to moldy's) |
-| `../funky/tests/corpus/*.c` | Input files |
-| `../funky/tests/corpus_test.rs` | How corpus tests work: run funky, compare to `.expected` |
+## C/C++ parity
 
-### Recommended architecture (CST leaf-node walker)
+The related `../funky` checkout, when available, supplies the reference formatter
+and config. Inspect its local contributor guidance before changing that repo.
+Moldy's `tests/corpus_test.rs` compares its output to checked-in `.expected`
+files and tests idempotency. `tests/acceptance_test.rs` covers positive and
+malformed C/C++ fixtures. Do not claim general parity from the small local
+corpus alone. Preserve output on pinned inputs when changing substrate use.
 
-tree-sitter does **not** store whitespace in the tree. The approach:
+## Rust and Python
 
-1. **Collect leaf nodes** — walk the tree recursively and collect every node
-   where `child_count() == 0`. These correspond to tokens. Comments are leaf
-   nodes with `kind() == "comment"`. Preprocessor lines (`#include`, `#define`,
-   `#if`, etc.) appear as named non-leaf nodes — their children are the individual
-   tokens; treat the entire subtree opaquely if you want to match funky's
-   preprocessor-is-opaque invariant.
+Rust and Python fixtures are in `tests/rust_corpus` and `tests/python_corpus`.
+The `rustfmt-compat` preset enables width-based bracketed list wrapping and
+collapsing short field lists (width 100); rustfmt's packed multiline list layout
+is not implemented. Attributes and macros remain opaque.
 
-2. **Walk in order** — iterate leaf nodes left-to-right. Before emitting each
-   leaf's text (`&source[node.start_byte()..node.end_byte()]`), emit
-   formatter-controlled whitespace based on:
-   - `prev_leaf.kind()` and `cur_leaf.kind()`
-   - The ancestor chain of `cur_leaf` (for indentation depth and context)
-   - `Config`
+Python defaults to width 79; `black` uses 88. Bracketed lists use a staged
+single-line / hugged-body / one-item-per-line strategy. Strings are opaque,
+comprehensions and subscripts lack width-based wrapping, and magic trailing
+commas do not force multiline layout. Fixtures target Ruff formatting at
+width 79 and flake8 checks; full tool parity is not established. When changing
+Python fixtures or emission, run the external reference check with installed
+`ruff` and `flake8`:
 
-3. **Indentation depth** — count `compound_statement` ancestors (or maintain a
-   depth counter as you descend). `switch_statement` and `case_statement` need
-   special handling when `config.indent.indent_switch_case` is true.
-
-4. **Context from ancestors** — `node.parent()` is cheap and replaces funky's
-   `BraceCtx` stack for many decisions (e.g. "is this `{` opening a function
-   body?" → check whether the grandparent is `function_definition`).
-
-### Key tree-sitter invariants
-
-- `node.is_named()` — false for punctuation/operators (anonymous nodes like `"{"`,
-  `";"`, `","`) and true for syntactic constructs. Use `node.kind()` for both.
-- `node.has_error()` on the root — presence of a syntax error; currently we pass
-  the source through unchanged in that case.
-- Whitespace between consecutive leaves: `next.start_byte() - prev.end_byte()` is
-  the source gap. **Ignore it**; emit formatter whitespace instead.
-- `node.start_position()` / `node.end_position()` return `tree_sitter::Point`
-  with `{row, column}` if you need line/column for error messages.
-
-### Parity test strategy
-
-Copy (or symlink) `../funky/tests/corpus/` to `tests/corpus/`. Write
-`tests/corpus_test.rs` that for each `.c`/`.cpp` file:
-
-1. Runs `moldy::formatter::format_source(path, source, &Config::default())`.
-2. Compares the result to the corresponding `.expected` file (same as funky's
-   corpus tests).
-
-Initially all tests fail (stub returns source unchanged). Drive them green one
-construct at a time. Funky's corpus test infrastructure in
-`../funky/tests/corpus_test.rs` is the template.
-
-## Adding a new language formatter
-
-1. Enable the language feature in `Cargo.toml`:
-   `lang-parsing-substrate = { path = "...", features = ["lang-c", "lang-cpp", "lang-rust"] }`
-
-2. Create `src/formatter/<lang>.rs` with a `pub fn format(source, config)` stub.
-
-3. Add a match arm in `src/formatter/mod.rs`:
-   ```rust
-   "rust" => rust::format(source, config),
-   ```
-
-4. Add corpus tests in `tests/corpus/` and `tests/corpus_test.rs`.
-
-## Running
-
+```sh
+cargo test --test python_corpus_test -- --ignored
 ```
-cargo build
-cargo test
-cargo run -- path/to/file.c
-cargo run -- --in-place path/to/file.c
-cargo run -- --check path/to/file.c
-cargo run -- --dump-tree path/to/file.c   # print tree-sitter CST
-cargo run -- -r src/                      # recurse a directory
-```
-
-Config is loaded from `moldy.toml` in the current directory automatically.
-
-## Relationship to funky
-
-- Config structure is intentionally identical — same keys, same defaults.
-- `--dump-tree` replaces funky's `--dump-tokens` (tree-sitter CST vs token stream).
-- `funky.toml` and `moldy.toml` are interchangeable for C/C++ formatting.
-- `funky` will be deprecated once the corpus tests pass.
 
 ## Substrate
 
-`lang-parsing-substrate` (`../lang_parsing_substrate`) provides:
-- `language_for_file(path)` → `Option<tree_sitter::Language>`
-- `language_info_for_file(path)` → `Option<&'static LanguageInfo>` (has `.key` field)
-- `is_source_extension(ext)` → bool
-- `languages()` → `&[LanguageInfo]`
-- Grammar re-exports: `lang_parsing_substrate::tree_sitter_c::LANGUAGE`, etc.
+`lang-parsing-substrate` 0.11.2 owns registry metadata, grammar access, and glob
+matching. Disable default features and enable only the four implemented
+formatters. `language_info_for_file` drives dispatch; `language_for_key`
+provides grammars; `language_for_file` serves tree dumping; `PathIgnore` serves
+path matching. Recursive discovery uses `is_source_extension` and skips `.h`.
+Explicit `.h` files use C, with no content sniffing. Do not duplicate extension
+lists in production code.
+
+The substrate provides no shared TOML loader in this version; keep the shared
+ignore subset's discovery in `src/toolchain.rs`. Analysis APIs (metrics,
+fingerprints, dead-code detection, call graphs) are not formatting operations.
+See [architecture](docs/architecture.md) for consumer responsibilities.
+
+## Adding a language
+
+1. Enable its substrate feature in `Cargo.toml`, keeping defaults disabled.
+2. Implement `src/formatter/<language>.rs` and add a dispatch arm.
+3. Add corpus expectations, idempotency, malformed-input and discovery tests.
+4. Document extensions, config, and compatibility limits.
+
+## Running and verification
+
+```sh
+cargo build --locked
+cargo test --locked
+cargo run -- path/to/file.c
+cargo run -- --in-place path/to/file.c
+cargo run -- --check --recursive src/
+cargo run -- --dump-tree path/to/file.c
+pre-commit run --all-files
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+```
+
+Load `moldy.toml` only from the current directory, or use `--config`. Presets
+bypass automatic config loading. Shared ignores come from the nearest
+`toolchain.toml` found by walking up from the current directory. Stdin is not
+implemented. See [development](docs/development.md) for required tool setup and
+substrate migration validation.
