@@ -25,7 +25,7 @@ Inactive `#if` branches remain source to preserve and format, not material
 to erase. Moldy reconstructs whitespace according to its configuration;
 this decision does not require every inactive branch to remain byte-for-byte
 unchanged. Unknown constructs and opaque regions retain their documented
-passthrough behavior. It does not promise unsupported format-off markers.
+passthrough behavior. Format-off markers are not supported.
 
 Grammar lookup and language facts may come from the substrate. Metrics,
 call extraction, control-flow graphs and fingerprints are not formatting

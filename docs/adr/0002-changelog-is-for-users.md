@@ -7,8 +7,8 @@
 A Moldy user needs to know what a release adds, removes or changes,
 especially when formatting output or check behavior changes. A list of
 commits or completed work mixes those changes with implementation history.
-The formatter validation record already holds comparison evidence; it is
-not a release note.
+The corpus tests already hold comparison evidence; they are not release
+notes.
 
 Moldy has no `CHANGELOG.md` today. The `moldy-fmt` package is published
 on crates.io; its release workflow requests generated GitHub release notes
@@ -38,10 +38,10 @@ know to review formatting diffs. Describe the correction in that entry
 rather than duplicating it under Fixed.
 
 Entries are short publication-ready explanations, not copied commit subjects
-or work-item titles. Exclude validation and corpus work, paper and docs-only
-edits, CI and packaging chores, refactors, tests or fixtures added for their
-own sake, and dependency changes with no user-visible effect. If any of those
-ships a user-visible capability or fix, describe that effect instead.
+or work-item titles. Exclude corpus work, docs-only edits, CI and packaging
+chores, refactors, tests or fixtures added for their own sake, and dependency
+changes with no user-visible effect. If any of those ships a user-visible
+capability or fix, describe that effect instead.
 
 Do not publish internal tracking references or locate defects in another
 project that have not been fixed upstream. The changelog is part of the public
@@ -61,9 +61,9 @@ do not include it.
   entry, published only once fixed; if it involves another project, wait
   until the fix has landed upstream. Nothing is deprecated yet; if something
   is, add the Deprecated heading then.
-- Validation results stay in the validation record. A formatting-change
-  entry points readers to that evidence without turning the changelog into
-  a benchmark report.
+- Corpus results stay in the corpus tests. A formatting-change entry
+  points readers to that evidence without turning the changelog into a
+  test report.
 
 Origin: adaptation of knots ADR-0004, itself ported from aurora-lint
 ADR-0009, restated for Moldy's user-visible behavior.
