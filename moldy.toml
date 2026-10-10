@@ -1,8 +1,5 @@
 # moldy configuration
 # All keys are optional — defaults shown below.
-#
-# Format-off regions: wrap any block with /* moldy:off */ … /* moldy:on */
-# to pass its contents through verbatim (no formatting rules applied).
 
 [indent]
 style = "spaces"   # "spaces" or "tabs"
