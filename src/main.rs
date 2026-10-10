@@ -112,7 +112,7 @@ fn load_config(explicit: Option<&Path>, preset: Option<&str>) -> anyhow::Result<
 /// Folds `toolchain.toml`'s shared `[ignore].paths` (discovered by walking up
 /// from the current directory) into `config.ignore.patterns`, so a project's
 /// file/directory ignores are expressed once and respected by every tool
-/// (knots, moldy, tools_sqc) instead of just moldy's own `[ignore]` section.
+/// (knots, moldy, aurora-lint) instead of just moldy's own `[ignore]` section.
 fn merge_toolchain_ignores(config: &mut Config) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     merge_toolchain_ignores_from(config, &cwd)

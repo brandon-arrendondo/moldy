@@ -1,5 +1,5 @@
 //! Substrate-level shared config (`toolchain.toml`) — currently just the
-//! `[ignore].paths` glob list every tool (knots, moldy, tools_sqc) respects,
+//! `[ignore].paths` glob list every tool (knots, moldy, aurora-lint) respects,
 //! so a project expresses file/directory ignores once instead of per-tool.
 //! See `lang_parsing_substrate/docs/unified-config-spec.md`.
 
