@@ -5,6 +5,13 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C/C++ multiline initializer lists preserve commas before or after leading
+  and trailing comments, including nested struct initializers and whether
+  the last element has a comma. Versions 0.1.0 and 0.2.0 inserted extra
+  commas around comments and could add a comma to the last element.
+
 ## [0.2.0] - 2026-10-12
 
 ### Fixed

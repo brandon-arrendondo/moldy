@@ -2432,63 +2432,43 @@ impl<'a> Fmt<'a> {
             children.len()
         };
 
-        // Collect (element, had_trailing_comma) pairs grouped by source row.
-        // Skip `,` separators; track which elements are followed by commas.
-        struct Elem<'t> {
-            node: Node<'t>,
-            row: usize,
-            has_comma: bool,
-        }
-        let mut elems: Vec<Elem> = vec![];
+        // Emit source separators in order: comments are not list elements,
+        // and synthesizing commas between child nodes moves or duplicates them.
+        let mut row_start = true;
+        let mut prev_row: Option<usize> = None;
+        let mut after_line_comment = false;
         for child in &children[start_i..end_i] {
-            let child = *child;
             if child.kind() == "," {
-                if let Some(last) = elems.last_mut() {
-                    last.has_comma = true;
+                if after_line_comment {
+                    self.nl();
+                    self.emit_indent();
+                    prev_row = Some(child.start_position().row);
+                    row_start = false;
                 }
+                self.raw(",");
+                after_line_comment = false;
                 continue;
             }
             let row = child.start_position().row;
-            elems.push(Elem {
-                node: child,
-                row,
-                has_comma: false,
-            });
-        }
-
-        let mut row_start = true;
-        let mut prev_row: Option<usize> = None;
-        let last_has_comma = elems.last().map(|e| e.has_comma).unwrap_or(false);
-
-        for elem in &elems {
-            if prev_row.map(|r| r != elem.row).unwrap_or(false) {
-                // New source row: end previous line and start new one.
-                self.raw(",");
+            if prev_row.map(|r| r != row).unwrap_or(false) {
                 self.nl();
                 row_start = true;
             }
             if row_start {
-                // `initializer_list` elements (starting with `{`) are written
-                // with no leading indent — funky's BraceCtx::Other logic calls
-                // space() which does nothing at line-start, so the `{` lands at
-                // its source column (typically 0). All other elements use the
-                // standard indent for the current depth.
-                if elem.node.kind() != "initializer_list" {
+                // Preserve the existing indentation policy for nested lists.
+                if child.kind() != "initializer_list" {
                     self.emit_indent();
                 }
                 row_start = false;
             } else {
-                self.raw(",");
                 self.space();
             }
-            self.emit_expr_node(elem.node);
-            prev_row = Some(elem.row);
+            self.emit_expr_node(*child);
+            prev_row = Some(child.end_position().row);
+            after_line_comment =
+                child.kind() == "comment" && self.node_text(*child).starts_with("//");
         }
-        // Trailing comma after last element only if source had one.
-        if !elems.is_empty() {
-            if last_has_comma {
-                self.raw(",");
-            }
+        if prev_row.is_some() {
             self.nl();
         }
 

@@ -1,0 +1,24 @@
+static const int k[3] = {
+    1,  /* a */
+    2,  /* b */
+    3   /* c */
+};
+static const int with_comma[3] = {
+    1,  /* a */
+    2,  /* b */
+    3,  /* c */
+};
+static const int comments_before_commas[3] = {
+    1   /* a */,
+    2   /* b */,
+    3   /* c */
+};
+static const int line_comments[3] = {
+    1,  // a
+    2,  // b
+    3   // c
+};
+static const int line_comments_before_commas[2] = {
+    1   // a
+    , 2 // b
+};

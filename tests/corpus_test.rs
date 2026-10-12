@@ -2,6 +2,7 @@ use moldy::config::Config;
 use moldy::formatter::format_source;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn corpus_files() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
@@ -99,5 +100,30 @@ fn corpus_idempotent() {
             .unwrap_or_else(|e| panic!("pass2 failed for {}: {e}", path.display()));
 
         assert_eq!(pass1, pass2, "idempotency failure for {}", path.display());
+    }
+}
+
+#[test]
+fn corpus_expected_files_pass_cli_check() {
+    let dir = tempfile::tempdir().expect("temporary corpus directory");
+    for path in corpus_files() {
+        let expected_path = path.with_extension(format!(
+            "{}.expected",
+            path.extension().unwrap().to_str().unwrap()
+        ));
+        let check_path = dir.path().join(path.file_name().unwrap());
+        fs::copy(&expected_path, &check_path).expect("copy expected corpus file");
+        let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .arg("--check")
+            .arg(&check_path)
+            .output()
+            .expect("run moldy --check");
+        assert!(
+            output.status.success(),
+            "expected file failed --check: {}\n{}",
+            expected_path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
