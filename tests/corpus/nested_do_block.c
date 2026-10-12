@@ -1,0 +1,9 @@
+void write_values(void) {
+    do {
+        {
+            int value = 1;
+            use(value);
+        }
+        advance();
+    } while (remaining());
+}

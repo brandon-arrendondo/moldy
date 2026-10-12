@@ -752,13 +752,17 @@ impl<'a> Fmt<'a> {
         self.depth += 1;
         self.emit_compound_body(node);
         // Funky quirk: case body inside BraceCtx::Other leaks into `}`.
-        if !compound_ends_with_case(node) {
+        let ends_with_case = compound_ends_with_case(node);
+        if !ends_with_case {
             self.depth -= 1;
         }
         self.ensure_nl();
         self.emit_indent();
-        // Always restore depth for callers.
-        self.depth = self.depth.saturating_sub(1);
+        // Release this block's increment exactly once. For a trailing case,
+        // postpone the decrement until after its closing-brace indentation.
+        if ends_with_case {
+            self.depth -= 1;
+        }
         self.raw("}");
     }
 

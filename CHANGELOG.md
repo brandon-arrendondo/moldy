@@ -5,6 +5,12 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C/C++ nested first-child blocks release their indentation level once.
+  Loop bodies no longer underflow the depth counter and abort with an
+  allocation failure; following statements retain their enclosing indentation.
+
 ## [0.2.1] - 2026-10-12
 
 ### Fixed

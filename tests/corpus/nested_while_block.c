@@ -1,0 +1,17 @@
+int prepare_path(char *path) {
+    int ok = 1;
+    goto first;
+    while (ok--) {
+        {
+            char *slash = find_separator(path);
+            if (slash) {
+                *slash = 0;
+                prepare_path(path);
+                *slash = '/';
+            }
+        }
+first:
+        use(path);
+    }
+    return ok;
+}
