@@ -5,16 +5,21 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-12
+
 ### Fixed
 
 - C/C++ multiline initializer lists preserve commas before or after leading
   and trailing comments, including nested struct initializers and whether
   the last element has a comma. Versions 0.1.0 and 0.2.0 inserted extra
   commas around comments and could add a comma to the last element.
+- C/C++ preprocessor directives inside initializer lists keep their text,
+  each on its own line starting at column 0, with no added commas. Versions
+  0.1.0 and 0.2.0 could join directive tokens (`#if X` became `#ifX`) and
+  append commas.
 
-- C/C++ preprocessor directives inside initializer lists retain their text
-  and spacing on separate lines, without added commas. Versions 0.1.0 and
-  0.2.0 could join directive tokens and append commas.
+Accountable reviewer: Brandon Arrendondo. Moldy is developed with AI
+assistance; see the README's AI Assistance section.
 
 ## [0.2.0] - 2026-10-12
 
@@ -31,5 +36,6 @@ What changed for users of Moldy, newest release first. See
 Accountable reviewer: Brandon Arrendondo. Moldy is developed with AI
 assistance; see the README's AI Assistance section.
 
-[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.1.0...v0.2.0
