@@ -7,9 +7,9 @@ What changed for users of Moldy, newest release first. See
 
 ### Fixed
 
-- C/C++ nested first-child blocks release their indentation level once.
-  Loop bodies no longer underflow the depth counter and abort with an
-  allocation failure; following statements retain their enclosing indentation.
+- C/C++ files no longer abort with a memory allocation failure when a
+  `{ ... }` block is the first statement inside another block, such as a
+  function, `if` or loop body.
 
 ## [0.2.1] - 2026-10-12
 

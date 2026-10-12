@@ -1,0 +1,4 @@
+void f(void) {
+    { int a = 1; use(a); }
+    after();
+}
