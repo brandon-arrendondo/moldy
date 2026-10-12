@@ -8,6 +8,7 @@ moldy [OPTIONS] <FILES>...
 | --- | --- |
 | `-i`, `--in-place` | Write changed files back to their paths. |
 | `--check` | Write no formatted output; report changed filenames on stderr and exit 1 if any would change. |
+| `--line-endings <STYLE>` | Explicitly normalize output endings; default preserves mapped source endings. |
 | `-r`, `--recursive` | Walk directories, following symbolic links. |
 | `-c`, `--config <FILE>` | Load this TOML file instead of checking for `moldy.toml` in the current directory. |
 | `--preset <NAME>` | Use a bundled preset instead of a config file; conflicts with `--config`. |
@@ -16,6 +17,30 @@ moldy [OPTIONS] <FILES>...
 | `-V`, `--version` | Print version. |
 
 `--check` and `--in-place` cannot be combined. Without either option, formatted files are concatenated on stdout without filename separators. Use one input per command when redirecting stdout to a file.
+
+## Line endings
+
+By default, CRLF stays CRLF and LF stays LF. In a mixed file, lines that
+map through formatting keep their own endings, including blank lines and
+opaque multiline strings. Matching ignores formatting whitespace and uses
+unique neighboring lines to bound repeated-line matches. The final fragment
+of a wrapped line can retain its source ending, including when a literal's
+prefix moves to a new line. New, joined, or
+otherwise unmatched lines use the file's predominant ending; a tie uses the
+first source ending, and a source with no endings uses LF. This mapping is
+best effort when malformed-input recovery drops or synthesizes text.
+
+`--line-endings lf` or `--line-endings crlf` explicitly converts every output
+ending, including endings in opaque multiline text. The existing
+`newlines.final_newline` setting still controls whether the output ends in a
+newline; normalization changes its convention, not that setting.
+
+A well-formatted CRLF file passes `--check` without a normalization flag.
+A normalization flag can make it fail `--check` because the requested endings
+differ. `--in-place` uses the same policy. Presets and the legacy parsed
+`[newlines].style` field do not request conversion; use the flag, or the
+library's `format_source_with_line_endings` API. See
+[ADR-0005](adr/0005-preserve-source-line-endings.md) for the mapping decision.
 
 ## Language detection
 

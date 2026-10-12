@@ -5,6 +5,11 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Added
+
+- `--line-endings lf|crlf` explicitly converts output line endings. Library
+  users can select `LineEndings` with `format_source_with_line_endings`.
+
 ### Fixed
 
 - C/C++ files no longer abort with a memory allocation failure when a
@@ -18,6 +23,15 @@ What changed for users of Moldy, newest release first. See
   another block, and ends with a `case` label, now indents both braces
   like the same block elsewhere. Version 0.2.1 printed its opening brace
   at column 0 and its closing brace one level too deep.
+
+### Changed
+
+- Formatting preserves LF and CRLF endings by default, including mixed
+  files. New or joined lines use the predominant source ending.
+  Previously, formatting emitted LF and could leave carriage returns in
+  comments and strings. Otherwise formatted CRLF files now pass `--check`.
+- `[newlines].style` has no effect on output endings. This field was already
+  unused; use `--line-endings` to request conversion.
 
 ## [0.2.1] - 2026-10-12
 

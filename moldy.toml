@@ -36,7 +36,7 @@ align_doxygen_cmt_span     = 1
 align_on_tabstop           = true
 
 [newlines]
-style           = "lf"   # "lf", "crlf", "native"
+style           = "lf"   # legacy parsed key; use --line-endings for conversion
 max_blank_lines = 2
 final_newline   = true
 blank_line_after_var_decl_block = true

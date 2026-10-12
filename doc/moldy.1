@@ -64,6 +64,14 @@ in the current directory.
 Use a built-in preset instead of a config file. Names: linux-kernel, riot,
 rustfmt-compat, pep8, black. Conflicts with \-\-config.
 .TP
+.BI \-\-line\-endings " lf|crlf"
+Explicitly normalize output endings to LF or CRLF. Without this option,
+mapped lines retain their source endings, including mixed LF/CRLF files.
+New, joined, or unmatched lines use the predominant source ending; ties use
+its first ending, or LF when there are none. Presets and the legacy
+newlines.style setting do not request conversion. Check and in-place modes
+use the same policy. Normalization also covers opaque multiline text.
+.TP
 .B \-\-dump\-tree
 Print the tree-sitter CST for each input file to standard output and exit.
 Useful for debugging formatter behaviour.

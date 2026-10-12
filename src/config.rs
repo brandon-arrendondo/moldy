@@ -420,7 +420,8 @@ pub enum AlignCmtStyle {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct NewlineConfig {
-    /// LF, CRLF, or the current platform's native ending.
+    /// Legacy parsed setting. Output endings are selected by the explicit
+    /// formatter policy or CLI --line-endings option, not this field.
     pub style: NewlineStyle,
     /// Maximum consecutive blank lines to keep; extras are collapsed.
     pub max_blank_lines: u8,

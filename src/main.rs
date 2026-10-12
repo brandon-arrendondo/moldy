@@ -36,6 +36,10 @@ struct Cli {
     #[arg(long)]
     check: bool,
 
+    /// Normalize line endings explicitly; default preserves source endings.
+    #[arg(long, value_parser = ["lf", "crlf"], value_name = "STYLE")]
+    line_endings: Option<String>,
+
     /// Recurse into directories and format all supported source files.
     #[arg(short = 'r', long)]
     recursive: bool,
@@ -66,7 +70,13 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        let formatted = formatter::format_source(path, &source, &config)?;
+        let ending_policy = match cli.line_endings.as_deref() {
+            Some("lf") => formatter::LineEndings::Lf,
+            Some("crlf") => formatter::LineEndings::Crlf,
+            _ => formatter::LineEndings::Preserve,
+        };
+        let formatted =
+            formatter::format_source_with_line_endings(path, &source, &config, ending_policy)?;
 
         if cli.check {
             if source != formatted {

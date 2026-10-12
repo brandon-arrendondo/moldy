@@ -55,7 +55,7 @@ align_doxygen_cmt_span = 1
 align_on_tabstop = true
 
 [newlines]
-style = "lf"                     # lf | crlf | native
+style = "lf"                     # legacy parsed key; use --line-endings to convert
 max_blank_lines = 2
 final_newline = true
 blank_line_after_var_decl_block = true
@@ -97,3 +97,9 @@ paths = ["vendor/**", "generated/**"]
 Those patterns are appended to `[ignore].patterns` from Moldy's config or preset. Other shared sections, including language-specific settings, are ignored. Invalid TOML or invalid ignore patterns fail the command.
 
 Matching uses the substrate's `PathIgnore` against the candidate path, then against its bare filename. Thus `*.pb.h` works at any depth. Paths are not rebased to the directory containing `toolchain.toml`; run from the project root and use relative input paths for patterns such as `vendor/**`. Ignored directories are not pruned during traversal: their files are filtered after discovery.
+
+Output line endings are preserved by default. The legacy `[newlines].style`
+key remains parsed for compatibility but does not select output endings.
+Use `--line-endings lf|crlf` for an explicit conversion; presets do not
+override preservation. `final_newline` still controls the final newline's
+presence. See [line endings](usage.md#line-endings).

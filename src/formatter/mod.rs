@@ -1,7 +1,11 @@
 mod c_cpp;
+mod line_endings;
 mod output;
+
 mod python;
 mod rust;
+
+pub use line_endings::LineEndings;
 
 use std::path::Path;
 
@@ -17,15 +21,27 @@ pub trait Formatter {
 /// Dispatch: detect language from path, parse with tree-sitter, route to the
 /// appropriate per-language formatter.
 pub fn format_source(path: &Path, source: &str, config: &Config) -> Result<String, MoldyError> {
+    format_source_with_line_endings(path, source, config, LineEndings::Preserve)
+}
+
+/// Format with an explicit ending policy. Parser trees and source slices use
+/// the original input; mapped endings are restored after layout and alignment.
+pub fn format_source_with_line_endings(
+    path: &Path,
+    source: &str,
+    config: &Config,
+    policy: LineEndings,
+) -> Result<String, MoldyError> {
     let info = lang_parsing_substrate::language_info_for_file(path)
         .ok_or_else(|| MoldyError::UnsupportedLanguage(path.display().to_string()))?;
 
-    match info.key {
+    let formatted = match info.key {
         "c" | "cpp" => c_cpp::format(source, info.key, config),
         "rust" => rust::format(source, config),
         "python" => python::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
-    }
+    }?;
+    Ok(line_endings::restore(source, &formatted, policy))
 }
 
 /// Print the tree-sitter CST to stdout (debug aid, analogous to funky's

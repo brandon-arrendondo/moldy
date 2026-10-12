@@ -144,12 +144,16 @@ fn array_bound_directive_recovery_is_unchanged() {
 }
 
 #[test]
-fn continued_initializer_directives_normalize_crlf() {
+fn continued_initializer_directives_preserve_crlf() {
     let source = "int values[] = {\r\n    0,\r\n#if defined(X) && \\\r\n    defined(Y)\r\n    1,\r\n#endif\r\n    2\r\n};\r\n";
     let path = Path::new("continued.c");
     let config = Config::default();
     let formatted = format_source(path, source, &config).expect("format CRLF initializer");
-    assert!(!formatted.contains('\r'), "continued directive retained CR");
+    assert!(
+        formatted.contains("\\\r\n"),
+        "continued directive lost CRLF"
+    );
+    assert!(!formatted.replace("\r\n", "").contains(['\r', '\n']));
     assert_eq!(
         formatted,
         format_source(path, &formatted, &config).expect("format a second time")

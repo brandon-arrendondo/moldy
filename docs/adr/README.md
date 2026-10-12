@@ -10,5 +10,6 @@ of each record before relying on it.
 | 0002 | [The changelog tells users what changed; it is not a git log or a task list](0002-changelog-is-for-users.md) | Accepted |
 | 0003 | [An incomplete or failed run never passes as clean](0003-incomplete-runs-never-pass-as-clean.md) | Accepted (not yet implemented) |
 | 0004 | [Moldy formats text and never runs analysis transforms](0004-format-text-without-analysis-transforms.md) | Accepted |
+| 0005 | [Preserve source line endings unless conversion is requested](0005-preserve-source-line-endings.md) | Proposed |
 
 Contributor rules remain in [AGENTS.md](../../AGENTS.md).
