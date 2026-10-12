@@ -64,6 +64,8 @@ struct Fmt<'a> {
     out: String,
     depth: u32,
     at_bol: bool,
+    // End of an opaque directive line, which can span recovered sibling nodes.
+    directive_end: usize,
     // blank_line_after_var_decl_block state
     decl_block_active: bool,
     decl_block_saw_decl: bool,
@@ -114,6 +116,7 @@ impl<'a> Fmt<'a> {
             out: String::with_capacity(src.len()),
             depth: 0,
             at_bol: true,
+            directive_end: 0,
             decl_block_active: false,
             decl_block_saw_decl: false,
             decl_block_at_stmt_start: false,
@@ -2436,27 +2439,32 @@ impl<'a> Fmt<'a> {
         // and synthesizing commas between child nodes moves or duplicates them.
         let mut row_start = true;
         let mut prev_row: Option<usize> = None;
-        let mut after_line_comment = false;
-        for child in &children[start_i..end_i] {
+        let mut after_opaque_line = false;
+        for (index, child) in children[start_i..end_i].iter().enumerate() {
+            if child.end_byte() <= self.directive_end {
+                continue;
+            }
             if child.kind() == "," {
-                if after_line_comment {
-                    self.nl();
+                if after_opaque_line {
+                    self.ensure_nl();
                     self.emit_indent();
                     prev_row = Some(child.start_position().row);
                     row_start = false;
                 }
                 self.raw(",");
-                after_line_comment = false;
+                after_opaque_line = false;
                 continue;
             }
             let row = child.start_position().row;
             if prev_row.map(|r| r != row).unwrap_or(false) {
-                self.nl();
+                self.ensure_nl();
                 row_start = true;
             }
             if row_start {
                 // Preserve the existing indentation policy for nested lists.
-                if child.kind() != "initializer_list" {
+                if child.kind() != "initializer_list"
+                    && !self.node_text(*child).trim_start().starts_with('#')
+                {
                     self.emit_indent();
                 }
                 row_start = false;
@@ -2464,12 +2472,22 @@ impl<'a> Fmt<'a> {
                 self.space();
             }
             self.emit_expr_node(*child);
-            prev_row = Some(child.end_position().row);
-            after_line_comment =
-                child.kind() == "comment" && self.node_text(*child).starts_with("//");
+            // Only trailing comments attach to the end of a multiline element.
+            // Other elements retain the established start-row grouping.
+            let next_is_comment = children[start_i + index + 1..end_i]
+                .iter()
+                .find(|next| next.kind() != ",")
+                .is_some_and(|next| next.kind() == "comment");
+            prev_row = Some(if next_is_comment {
+                child.end_position().row
+            } else {
+                child.start_position().row
+            });
+            after_opaque_line = self.at_bol
+                || (child.kind() == "comment" && self.node_text(*child).starts_with("//"));
         }
         if prev_row.is_some() {
-            self.nl();
+            self.ensure_nl();
         }
 
         self.depth -= 1;
@@ -2499,7 +2517,44 @@ impl<'a> Fmt<'a> {
         // Delta added to source column when in source_brace_depth mode.
         let mut source_brace_col_delta: i32 = 0;
 
+        let mut after_directive = false;
         for (i, &leaf) in leaves.iter().enumerate() {
+            if leaf.start_byte() < self.directive_end {
+                continue;
+            }
+            // Error recovery can split initializer directives into ordinary
+            // expression leaves. Keep the complete logical line opaque.
+            if self.node_text(leaf).starts_with('#')
+                && self.src[self.src[..leaf.start_byte()]
+                    .rfind('\n')
+                    .map_or(0, |offset| offset + 1)..leaf.start_byte()]
+                    .trim()
+                    .is_empty()
+            {
+                let mut end = leaf.start_byte();
+                loop {
+                    end = self.src[end..]
+                        .find('\n')
+                        .map_or(self.src.len(), |offset| end + offset + 1);
+                    if end == self.src.len()
+                        || !self.src[..end]
+                            .trim_end_matches(['\r', '\n'])
+                            .ends_with('\\')
+                    {
+                        break;
+                    }
+                }
+                self.ensure_nl();
+                self.raw(self.src[leaf.start_byte()..end].trim_end_matches(['\r', '\n']));
+                self.nl();
+                self.directive_end = end;
+                after_directive = true;
+                continue;
+            }
+            if after_directive {
+                self.emit_indent();
+                after_directive = false;
+            }
             let prev = if i > 0 { Some(leaves[i - 1]) } else { None };
             // Lambda expressions are collected as opaque pseudo-leaves; dispatch them.
             if leaf.kind() == "lambda_expression" {

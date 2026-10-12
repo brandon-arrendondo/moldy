@@ -22,3 +22,8 @@ static const int line_comments_before_commas[2] = {
     1 // a
     , 2 // b
 };
+int boundary_comments[] = { /* opening */
+    1,
+    2
+    /* closing */
+};

@@ -1,0 +1,6 @@
+int values[] = {
+    N_("First"
+       " second"), 2, 3,
+    {1,
+     2}, 4
+};

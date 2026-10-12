@@ -12,6 +12,10 @@ What changed for users of Moldy, newest release first. See
   the last element has a comma. Versions 0.1.0 and 0.2.0 inserted extra
   commas around comments and could add a comma to the last element.
 
+- C/C++ preprocessor directives inside initializer lists retain their text
+  and spacing on separate lines, without added commas. Versions 0.1.0 and
+  0.2.0 could join directive tokens and append commas.
+
 ## [0.2.0] - 2026-10-12
 
 ### Fixed

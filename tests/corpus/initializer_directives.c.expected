@@ -1,0 +1,62 @@
+int conditional[] = {
+    1, /* before */
+#if X
+    2,
+#elif defined(Y) && Z
+    3,
+#else
+    4,
+#endif
+    5 /* last */
+};
+int directives[] = {
+    0,
+#define A 1
+#undef A
+#pragma message("initializer")
+#ifdef X
+    1,
+#endif
+#ifndef Y
+    2,
+#endif
+    3
+};
+int nested[][2] = {
+{
+        1,
+#if defined(Y) && Z
+        2
+#else
+        3
+#endif
+    },
+{ 4, 5 }
+};
+int comma_after_directive[] = {
+    1
+#ifdef X
+    , 2
+#endif
+};
+int continued[] = {
+    0,
+#if defined(X) && \
+    defined(Y)
+    1,
+#endif
+    2
+};
+int separated_comma[] = {
+    1,
+    2
+#if X
+    , 3
+#endif
+    /* last */
+};
+int first_last[] = {
+#if X
+1,
+#endif
+};
