@@ -1,7 +1,7 @@
 # ADR-0004: Moldy formats text and never runs analysis transforms
 
-**Status:** Proposed, 2026-10-10. Records the implemented formatting invariant;
-awaiting review and acceptance.
+**Status:** Accepted, 2026-10-12 (Brandon Arrendondo). Proposed 2026-10-10.
+Records the implemented formatting invariant.
 
 ## Context
 

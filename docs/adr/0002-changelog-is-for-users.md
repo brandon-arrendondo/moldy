@@ -1,6 +1,7 @@
 # ADR-0002: The changelog tells users what changed; it is not a git log or a task list
 
-**Status:** Proposed, 2026-10-10. Awaiting review and acceptance.
+**Status:** Accepted, 2026-10-12 (Brandon Arrendondo). Proposed 2026-10-10. The
+changelog starts with 0.2.0.
 
 ## Context
 

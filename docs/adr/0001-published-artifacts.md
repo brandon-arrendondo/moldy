@@ -1,6 +1,6 @@
 # ADR-0001: A published artifact cites its sources, ships as a sanitized export, names its accountable reviewer, and discloses AI use
 
-**Status:** Proposed, 2026-10-10. Awaiting review and acceptance.
+**Status:** Accepted, 2026-10-12 (Brandon Arrendondo). Proposed 2026-10-10.
 
 ## Context
 

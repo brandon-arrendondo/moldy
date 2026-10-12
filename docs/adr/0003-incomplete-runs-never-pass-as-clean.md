@@ -1,7 +1,8 @@
 # ADR-0003: An incomplete or failed run never passes as clean
 
-**Status:** Proposed, 2026-10-10. Awaiting review and acceptance. This is a
-behavioral target, not an implemented guarantee.
+**Status:** Accepted, 2026-10-12 (Brandon Arrendondo). Proposed 2026-10-10.
+This is an accepted behavioral target, not yet implemented: 0.2.0 still has
+the behavior described under Context.
 
 ## Context
 
