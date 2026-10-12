@@ -1,0 +1,8 @@
+struct s {
+	int a;
+	int b;
+#ifdef X
+	int c;
+#endif /* X */
+	int d;
+};

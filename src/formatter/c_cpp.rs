@@ -66,6 +66,7 @@ struct Fmt<'a> {
     at_bol: bool,
     // End of an opaque directive line, which can span recovered sibling nodes.
     directive_end: usize,
+    in_initializer: bool,
     // blank_line_after_var_decl_block state
     decl_block_active: bool,
     decl_block_saw_decl: bool,
@@ -117,6 +118,7 @@ impl<'a> Fmt<'a> {
             depth: 0,
             at_bol: true,
             directive_end: 0,
+            in_initializer: false,
             decl_block_active: false,
             decl_block_saw_decl: false,
             decl_block_at_stmt_start: false,
@@ -303,6 +305,11 @@ impl<'a> Fmt<'a> {
     // ── Preprocessor ──────────────────────────────────────────────────────────
 
     fn emit_preproc(&mut self, node: Node) {
+        // Recovery may put a macro's stringification body in a sibling
+        // preprocessor node after its initializer directive was emitted.
+        if node.end_byte() <= self.directive_end {
+            return;
+        }
         let text = self.node_text(node).trim_end_matches('\n');
         self.raw(text);
         self.nl();
@@ -2093,10 +2100,14 @@ impl<'a> Fmt<'a> {
     fn measure_decl_render(&mut self, node: Node) -> usize {
         let saved_out = std::mem::take(&mut self.out);
         let saved_bol = self.at_bol;
+        let saved_directive_end = self.directive_end;
+        let saved_initializer = self.in_initializer;
         self.at_bol = false;
         self.emit_decl_children(node);
         let rendered = std::mem::replace(&mut self.out, saved_out);
         self.at_bol = saved_bol;
+        self.directive_end = saved_directive_end;
+        self.in_initializer = saved_initializer;
         // Return chars on the last line (handles unlikely multi-line case).
         rendered.len() - rendered.rfind('\n').map(|p| p + 1).unwrap_or(0)
     }
@@ -2408,6 +2419,15 @@ impl<'a> Fmt<'a> {
     }
 
     fn emit_initializer_list(&mut self, node: Node) {
+        let saved_initializer = self.in_initializer;
+        let saved_directive_end = self.directive_end;
+        self.in_initializer = true;
+        self.emit_initializer_contents(node);
+        self.in_initializer = saved_initializer;
+        self.directive_end = saved_directive_end;
+    }
+
+    fn emit_initializer_contents(&mut self, node: Node) {
         let src_range = &self.src[node.start_byte()..node.end_byte()];
         let has_newline = src_range.contains('\n');
 
@@ -2496,6 +2516,23 @@ impl<'a> Fmt<'a> {
         self.raw("}");
     }
 
+    fn initializer_leaf_context(&self, leaf: Node, recovered_depth: usize) -> bool {
+        if self.in_initializer || recovered_depth > 0 {
+            return true;
+        }
+        if !self.node_text(leaf).starts_with('#') && leaf.start_byte() >= self.directive_end {
+            return false;
+        }
+        let mut ancestor = leaf.parent();
+        while let Some(parent) = ancestor {
+            if parent.kind() == "initializer_list" {
+                return true;
+            }
+            ancestor = parent.parent();
+        }
+        false
+    }
+
     fn emit_leaves<'t>(&mut self, leaves: &[Node<'t>]) {
         // paren_col_stack tracks the column after each `(` so that source
         // newlines inside parenthesized expressions are re-indented to align
@@ -2518,13 +2555,26 @@ impl<'a> Fmt<'a> {
         let mut source_brace_col_delta: i32 = 0;
 
         let mut after_directive = false;
+        let mut recovered_initializer_depth = 0;
         for (i, &leaf) in leaves.iter().enumerate() {
-            if leaf.start_byte() < self.directive_end {
+            // A directive first in a list may prevent tree-sitter from
+            // constructing initializer_list. Track assignment braces in this
+            // recovered leaf stream, without treating function bodies as lists.
+            if leaf.kind() == "{"
+                && (recovered_initializer_depth > 0 || i > 0 && leaves[i - 1].kind() == "=")
+            {
+                recovered_initializer_depth += 1;
+            } else if leaf.kind() == "}" && recovered_initializer_depth > 0 {
+                recovered_initializer_depth -= 1;
+            }
+            let in_initializer = self.initializer_leaf_context(leaf, recovered_initializer_depth);
+            if in_initializer && leaf.start_byte() < self.directive_end {
                 continue;
             }
             // Error recovery can split initializer directives into ordinary
             // expression leaves. Keep the complete logical line opaque.
-            if self.node_text(leaf).starts_with('#')
+            if in_initializer
+                && self.node_text(leaf).starts_with('#')
                 && self.src[self.src[..leaf.start_byte()]
                     .rfind('\n')
                     .map_or(0, |offset| offset + 1)..leaf.start_byte()]
@@ -2545,7 +2595,10 @@ impl<'a> Fmt<'a> {
                     }
                 }
                 self.ensure_nl();
-                self.raw(self.src[leaf.start_byte()..end].trim_end_matches(['\r', '\n']));
+                let text = self.src[leaf.start_byte()..end]
+                    .trim_end_matches(['\r', '\n'])
+                    .replace("\r\n", "\n");
+                self.raw(&text);
                 self.nl();
                 self.directive_end = end;
                 after_directive = true;

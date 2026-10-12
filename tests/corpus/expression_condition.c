@@ -1,0 +1,7 @@
+int f(void) {
+    return 1
+#if defined(X)
+        + 2
+#endif
+        ;
+}

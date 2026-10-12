@@ -1,0 +1,5 @@
+static const char *names[] = {
+#define X(n) #n,
+    X(a)X(b)
+#undef X
+};

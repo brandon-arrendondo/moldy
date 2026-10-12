@@ -1,0 +1,4 @@
+struct S {
+    int a[N#ifdefX + 1#endif];  /* trailing */
+    int b;                      /* other */
+};

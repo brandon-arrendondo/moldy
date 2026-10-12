@@ -127,3 +127,31 @@ fn corpus_expected_files_pass_cli_check() {
         );
     }
 }
+
+#[test]
+fn array_bound_directive_recovery_is_unchanged() {
+    // This recovery output is already non-idempotent; preserve its existing
+    // first pass rather than changing directives outside initializer lists.
+    let source = include_str!("regression/expression_directives.c");
+    let expected = include_str!("regression/expression_directives.c.expected");
+    let formatted = format_source(
+        Path::new("expression_directives.c"),
+        source,
+        &Config::default(),
+    )
+    .expect("format recovered array bound");
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn continued_initializer_directives_normalize_crlf() {
+    let source = "int values[] = {\r\n    0,\r\n#if defined(X) && \\\r\n    defined(Y)\r\n    1,\r\n#endif\r\n    2\r\n};\r\n";
+    let path = Path::new("continued.c");
+    let config = Config::default();
+    let formatted = format_source(path, source, &config).expect("format CRLF initializer");
+    assert!(!formatted.contains('\r'), "continued directive retained CR");
+    assert_eq!(
+        formatted,
+        format_source(path, &formatted, &config).expect("format a second time")
+    );
+}
