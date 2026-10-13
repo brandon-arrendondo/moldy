@@ -7,11 +7,17 @@ What changed for users of Moldy, newest release first. See
 
 ### Fixed
 
-- Nested blocks at the start of a C/C++ block now indent their opening brace
-  to match the closing brace.
 - C/C++ files no longer abort with a memory allocation failure when a
   `{ ... }` block is the first statement inside another block, such as a
-  function, `if` or loop body.
+  function, `if` or loop body. These blocks now format and indent like
+  other blocks.
+
+### Changed
+
+- A `{ ... }` block that is the first statement of a `switch` body or
+  another block, and ends with a `case` label, now indents both braces
+  like the same block elsewhere. Version 0.2.1 printed its opening brace
+  at column 0 and its closing brace one level too deep.
 
 ## [0.2.1] - 2026-10-12
 

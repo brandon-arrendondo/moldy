@@ -741,29 +741,10 @@ impl<'a> Fmt<'a> {
 
     // ── Statements ────────────────────────────────────────────────────────────
 
-    /// Emit a `compound_statement` that is the first child of another `{...}`
-    /// (funky BraceCtx::Other). Key difference from normal compound_statement:
-    /// if the body ends with a case_statement, the case body's depth increment
-    /// leaks into the closing `}` — matching funky's indent_level behavior.
+    /// Emit a first-child block, including its opening indentation.
     fn emit_brace_ctx_other_compound(&mut self, node: Node) {
         self.emit_indent();
-        self.raw("{");
-        self.nl();
-        self.depth += 1;
-        self.emit_compound_body(node);
-        // Funky quirk: case body inside BraceCtx::Other leaks into `}`.
-        let ends_with_case = compound_ends_with_case(node);
-        if !ends_with_case {
-            self.depth -= 1;
-        }
-        self.ensure_nl();
-        self.emit_indent();
-        // Release this block's increment exactly once. For a trailing case,
-        // postpone the decrement until after its closing-brace indentation.
-        if ends_with_case {
-            self.depth -= 1;
-        }
-        self.raw("}");
+        self.emit_statement(node);
     }
 
     fn emit_statement(&mut self, node: Node) {
@@ -3414,32 +3395,6 @@ fn should_inject(node: Node) -> bool {
         "compound_statement" => false,
         k if is_preproc(k) => false,
         _ => !is_null_stmt(node),
-    }
-}
-
-/// Funky quirk: when a `case_statement` is the last body statement of a
-/// BraceCtx::Other block (column-0 `{...}` directly after another `{`),
-/// the case body's indent_level increment leaks into the closing `}`.
-/// Returns true when the compound_statement's last content is a case.
-fn compound_ends_with_case(node: Node<'_>) -> bool {
-    let mut cursor = node.walk();
-    let children: Vec<Node> = node.children(&mut cursor).collect();
-    let last = children
-        .iter()
-        .rev()
-        .find(|n| !matches!(n.kind(), "{" | "}"));
-    match last {
-        None => false,
-        Some(n) => match n.kind() {
-            "case_statement" => true,
-            "labeled_statement" => {
-                let mut c2 = n.walk();
-                n.children(&mut c2)
-                    .last()
-                    .is_some_and(|lc| lc.kind() == "case_statement")
-            }
-            _ => false,
-        },
     }
 }
 

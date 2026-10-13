@@ -1188,7 +1188,7 @@ next27:
 foo27:
                         case 1:
                             return 1;
-                        }
+                    }
                 }
                 switch (count_and_return_zero()) {
                     case 0:
@@ -2157,7 +2157,7 @@ next:
 foo:
                                     case 1:
                                         return 1;
-                                    }
+                                }
                             }
                             switch (main76_x) {
                                 case 0:
