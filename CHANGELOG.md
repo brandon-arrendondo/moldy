@@ -27,8 +27,6 @@ What changed for users of Moldy, newest release first. See
   like the same block elsewhere. Version 0.2.1 printed its opening brace
   at column 0 and its closing brace one level too deep.
 
-### Changed
-
 - Formatting preserves LF and CRLF endings by default, including mixed
   files. New or joined lines use the predominant source ending.
   Previously, formatting emitted LF and could leave carriage returns in
