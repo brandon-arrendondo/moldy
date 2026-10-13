@@ -1184,7 +1184,7 @@ next27:
             case 1:
                 return 1;
                 switch (count_and_return_zero()) {
-{
+                    {
 foo27:
                         case 1:
                             return 1;
@@ -2152,7 +2152,7 @@ next:
                         case 1:
                             return 1;
                             switch (main76_x) {
-{
+                                {
                                     main76_x = 1 + 1;
 foo:
                                     case 1:

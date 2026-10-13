@@ -4,7 +4,7 @@ int prepare_path(char *path)
 
     goto first;
     while (ok--) {
-{
+        {
             char *slash = find_separator(path);
             if (slash) {
                 *slash = 0;

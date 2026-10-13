@@ -685,8 +685,7 @@ impl<'a> Fmt<'a> {
                         if !is_null_stmt(child) {
                             self.ensure_nl();
                             // Standalone `{ }` block as FIRST child of outer `{ }`:
-                            // funky's BraceCtx::Other (prev=LBrace) writes `{` at col 0.
-                            // Only suppress indent when this block is the first content.
+                            // Its dedicated emitter owns opening-brace indentation.
                             let is_first_nested_block =
                                 first_stmt && child.kind() == "compound_statement";
                             if !is_first_nested_block {
@@ -747,6 +746,7 @@ impl<'a> Fmt<'a> {
     /// if the body ends with a case_statement, the case body's depth increment
     /// leaks into the closing `}` — matching funky's indent_level behavior.
     fn emit_brace_ctx_other_compound(&mut self, node: Node) {
+        self.emit_indent();
         self.raw("{");
         self.nl();
         self.depth += 1;
@@ -1375,7 +1375,7 @@ impl<'a> Fmt<'a> {
                 _ => {
                     self.ensure_nl();
                     // Standalone block `{...}` as first child in switch body:
-                    // funky emits `{` at column 0 (BraceCtx::Other with no indent).
+                    // Its dedicated emitter owns opening-brace indentation.
                     let is_first_block = child.kind() == "compound_statement" && i == start_i;
                     if !is_first_block {
                         self.emit_indent();
