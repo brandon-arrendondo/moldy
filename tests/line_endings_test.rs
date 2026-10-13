@@ -153,7 +153,7 @@ fn c_corpus_endings_preserve_layout_and_idempotency() {
         ) {
             continue;
         }
-        // These malformed/recovered directive fixtures have different CRLF
+        // These recovered directive fixtures have different CRLF
         // parse trees; ADR-0005 records the limitation separately.
         if matches!(
             path.file_name().and_then(|s| s.to_str()),
@@ -165,6 +165,12 @@ fn c_corpus_endings_preserve_layout_and_idempotency() {
         let lf = format_source(&path, &source, &config).unwrap();
         let crlf_source = source.replace('\n', "\r\n");
         let output = format_source(&path, &crlf_source, &config).unwrap();
+        assert!(output.contains("\r\n"), "missing CRLF: {}", path.display());
+        assert!(
+            !output.replace("\r\n", "").contains(['\r', '\n']),
+            "non-CRLF ending: {}",
+            path.display()
+        );
         assert_eq!(
             output.replace("\r\n", "\n"),
             lf,

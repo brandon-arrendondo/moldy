@@ -12,6 +12,9 @@ What changed for users of Moldy, newest release first. See
 
 ### Fixed
 
+- Documentation and sample configuration no longer describe `[newlines].style`
+  as controlling output endings. This field has never affected formatting;
+  use `--line-endings` to request conversion.
 - C/C++ files no longer abort with a memory allocation failure when a
   `{ ... }` block is the first statement inside another block, such as a
   function, `if` or loop body. These blocks now format and indent like
@@ -30,8 +33,6 @@ What changed for users of Moldy, newest release first. See
   files. New or joined lines use the predominant source ending.
   Previously, formatting emitted LF and could leave carriage returns in
   comments and strings. Otherwise formatted CRLF files now pass `--check`.
-- `[newlines].style` has no effect on output endings. This field was already
-  unused; use `--line-endings` to request conversion.
 
 ## [0.2.1] - 2026-10-12
 

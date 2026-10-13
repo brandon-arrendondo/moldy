@@ -74,6 +74,8 @@ Python defaults to width 79; the `black` preset selects 88. Strings and f-string
 C/C++ string literals with backslash-newline continuations, including inline
 assembly, are not reliably parsed with CRLF: formatting can change indentation
 or damage strings. Explicit CRLF conversion can expose this on a later pass.
-Complex preprocessor directives inside initializer lists can also recover
-differently with CRLF, damage tokens, and fail repeated-formatting checks.
+Two consecutive preprocessor directives inside an initializer list can recover
+differently with CRLF, damage tokens, and fail repeated-formatting checks. This
+predates ending preservation; the 0.2.1 initializer-directive fix did not cover
+these CRLF inputs.
 UTF-8 BOMs are removed from BOM + CRLF files. See ADR-0005 for these limits.
