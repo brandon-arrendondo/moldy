@@ -122,3 +122,60 @@ fn wrapping_a_literal_prefix_keeps_its_first_embedded_ending() {
     assert!(formatted.contains("first\r\nsecond\nthird\n"));
     assert_eq!(format_source(path, &formatted, &config).unwrap(), formatted);
 }
+
+#[test]
+fn directive_comments_are_equivalent_and_idempotent_across_endings() {
+    let config = Config::default();
+    let path = Path::new("directive.c");
+    for directive in ["#include <a.h>", "#define A 1", "#pragma once", "#endif"] {
+        let source = format!("{directive}\n// c\nint x;\n");
+        let lf = format_source(path, &source, &config).unwrap();
+        let crlf_source = source.replace('\n', "\r\n");
+        let formatted = format_source(path, &crlf_source, &config).unwrap();
+        assert_eq!(formatted.replace("\r\n", "\n"), lf, "{directive}");
+        assert_eq!(format_source(path, &formatted, &config).unwrap(), formatted);
+        assert_eq!(
+            format_source_with_line_endings(path, &crlf_source, &config, LineEndings::Lf).unwrap(),
+            lf
+        );
+    }
+}
+
+#[test]
+fn c_corpus_endings_preserve_layout_and_idempotency() {
+    let config = Config::default();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if !matches!(
+            path.extension().and_then(|s| s.to_str()),
+            Some("c" | "cpp" | "h" | "hpp")
+        ) {
+            continue;
+        }
+        // These malformed/recovered directive fixtures have different CRLF
+        // parse trees; ADR-0005 records the limitation separately.
+        if matches!(
+            path.file_name().and_then(|s| s.to_str()),
+            Some("initializer_directives.c" | "initializer_directives.cpp")
+        ) {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        let lf = format_source(&path, &source, &config).unwrap();
+        let crlf_source = source.replace('\n', "\r\n");
+        let output = format_source(&path, &crlf_source, &config).unwrap();
+        assert_eq!(
+            output.replace("\r\n", "\n"),
+            lf,
+            "layout: {}",
+            path.display()
+        );
+        assert_eq!(
+            format_source(&path, &output, &config).unwrap(),
+            output,
+            "idempotency: {}",
+            path.display()
+        );
+    }
+}

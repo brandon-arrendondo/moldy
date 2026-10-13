@@ -251,7 +251,7 @@ impl<'a> Fmt<'a> {
                     // If the `;` has a trailing same-line comment, emit it inline.
                     if let Some(cmt) = trailing_comment {
                         self.space();
-                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                         prev_end = cmt.end_byte();
                         i += 2;
                         self.nl();
@@ -264,7 +264,7 @@ impl<'a> Fmt<'a> {
                     self.raw(";");
                     if let Some(cmt) = trailing_comment {
                         self.space();
-                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                         prev_end = cmt.end_byte();
                         i += 2;
                         self.nl();
@@ -289,7 +289,7 @@ impl<'a> Fmt<'a> {
                         self.at_bol = false;
                     }
                     self.space();
-                    self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                    self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                     self.nl();
                     prev_end = cmt.end_byte();
                     i += 2;
@@ -310,14 +310,14 @@ impl<'a> Fmt<'a> {
         if node.end_byte() <= self.directive_end {
             return;
         }
-        let text = self.node_text(node).trim_end_matches('\n');
+        let text = self.node_text(node).trim_end_matches(['\r', '\n']);
         self.raw(text);
         self.nl();
     }
 
     fn emit_comment_standalone(&mut self, node: Node) {
         self.emit_indent();
-        let text = self.node_text(node).trim_end_matches('\n');
+        let text = self.node_text(node).trim_end_matches(['\r', '\n']);
         self.raw(text);
         self.nl();
     }
@@ -521,7 +521,7 @@ impl<'a> Fmt<'a> {
                 }
                 "comment" => {
                     self.space();
-                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
                     prev = Some(child);
                 }
                 "attribute_specifier"
@@ -656,7 +656,7 @@ impl<'a> Fmt<'a> {
                     self.emit_blank_lines(blanks);
                     self.ensure_nl();
                     self.emit_indent();
-                    let text = self.node_text(child).trim_end_matches('\n');
+                    let text = self.node_text(child).trim_end_matches(['\r', '\n']);
                     self.raw(text);
                     self.nl();
                 }
@@ -716,7 +716,7 @@ impl<'a> Fmt<'a> {
                             self.at_bol = false;
                         }
                         self.space();
-                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                         self.nl();
                         prev_end = cmt.end_byte();
                         first_stmt = false;
@@ -798,7 +798,7 @@ impl<'a> Fmt<'a> {
             "try_statement" => self.emit_try_statement(node),
             k if is_preproc(k) => self.emit_preproc(node),
             "comment" => {
-                let text = self.node_text(node).trim_end_matches('\n');
+                let text = self.node_text(node).trim_end_matches(['\r', '\n']);
                 self.raw(text);
             }
             _ => {
@@ -1349,7 +1349,7 @@ impl<'a> Fmt<'a> {
                 "comment" => {
                     self.ensure_nl();
                     self.emit_indent();
-                    let text = self.node_text(child).trim_end_matches('\n');
+                    let text = self.node_text(child).trim_end_matches(['\r', '\n']);
                     self.raw(text);
                     self.nl();
                 }
@@ -1722,7 +1722,7 @@ impl<'a> Fmt<'a> {
                 "comment" => {
                     self.ensure_nl();
                     self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
                     self.nl();
                 }
                 "access_specifier" => {
@@ -2160,7 +2160,7 @@ impl<'a> Fmt<'a> {
                     // Stand-alone comment (not consumed as a trailing inline comment).
                     self.ensure_nl();
                     self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
                     self.nl();
                 }
                 k if is_preproc(k) => {
@@ -2205,7 +2205,7 @@ impl<'a> Fmt<'a> {
                         }
                         self.at_bol = false;
                         let cmt = children[i + 1];
-                        self.raw(self.node_text(cmt).trim_end_matches('\n'));
+                        self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                         prev_end = cmt.end_byte();
                         i += 2;
                     } else {
@@ -2254,7 +2254,7 @@ impl<'a> Fmt<'a> {
                 "comment" => {
                     self.ensure_nl();
                     self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches('\n'));
+                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
                     self.nl();
                     prev_row = None;
                 }

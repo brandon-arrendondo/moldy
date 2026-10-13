@@ -70,3 +70,10 @@ C/C++ targets funky's rules, verified against checked-in fixtures. Formatters co
 Rust's `rustfmt-compat` preset enables width-based list wrapping and short field-list collapsing, but it is not complete rustfmt parity. Attributes and macro invocations remain opaque. Rustfmt's packed multiline list layout is not implemented.
 
 Python defaults to width 79; the `black` preset selects 88. Strings and f-strings remain opaque, with no quote normalization. Comprehensions, subscripts/slices, and multi-target assignments lack width-based wrapping. Magic trailing commas do not force multiline output. The width is a wrapping budget for supported constructs, not a hard maximum line length. The presets do not guarantee complete Black/Ruff or PEP8 conformance for arbitrary source.
+
+C/C++ string literals with backslash-newline continuations, including inline
+assembly, are not reliably parsed with CRLF: formatting can change indentation
+or damage strings. Explicit CRLF conversion can expose this on a later pass.
+Complex preprocessor directives inside initializer lists can also recover
+differently with CRLF, damage tokens, and fail repeated-formatting checks.
+UTF-8 BOMs are removed from BOM + CRLF files. See ADR-0005 for these limits.
