@@ -53,13 +53,15 @@ no quadratic edit-distance table or unbounded lookahead.
 ### Parser and opaque text
 
 Parse the original source and use that exact string for every tree-sitter
-slice, consistent with [ADR-0004](0004-format-text-without-analysis-transforms.md).
+slice, consistent with
+[ADR-0004](0004-format-text-without-analysis-transforms.md).
 After layout/alignment, prepare rendered endings for restoration. CRLF becomes
 an internal LF boundary. If the source uses CRLF and contains no standalone
 carriage return, a lone CR retained by opaque/error recovery is also a line
 boundary; removing it would join code and comments. Any standalone CR in the
 original source disables this lone-CR boundary rule for the entire file;
-standalone CR remains text. No input preprocessing or analysis transform is used.
+standalone CR remains text. No input preprocessing or analysis transform is
+used.
 The debug tree route likewise parses the original supplied source.
 
 Restoration covers opaque multiline literals and comments as well as ordinary
@@ -75,21 +77,24 @@ between outputs on repeated formatting.
 
 ## Compatibility limits
 
-C/C++ backslash-newline splices inside string literals, including inline assembly,
-are not reliably parsed with CRLF. Formatting may change continuation indentation
-or damage the strings; requesting CRLF can expose the same limitation on the next
-pass.
+C/C++ backslash-newline splices inside string literals, including inline
+assembly, are not reliably parsed with CRLF. Formatting may change continuation
+indentation or damage the strings; requesting CRLF can expose the same
+limitation on the next pass.
 
-Two consecutive preprocessor directives inside an initializer list are enough
-for CRLF parser recovery to damage tokens and fail idempotency. For example,
-`#pragma message("i")` followed by `#ifdef X` triggers this limitation. It predates
-ending preservation: version 0.2.1 and the later allocation fix produce the same
-text as this implementation after removing carriage returns. The version 0.2.1
-changelog claim that initializer directives keep their text does not hold for
-CRLF input. The existing C and C++ initializer-directive fixtures demonstrate
-this limit. Ending restoration does not repair parser recovery. Avoid formatting
-these inputs until the formatter supports them. A UTF-8 BOM is removed from BOM + CRLF
-input, as it was previously.
+Two consecutive preprocessor directives inside an initializer list, such as
+`#pragma message("i")` followed by `#ifdef X`, are enough for CRLF recovery to
+lay out differently. The pair alone preserves tokens and is idempotent. With
+further directives or initializers after it, recovery can damage tokens and
+fail idempotency. This predates ending preservation: version 0.2.1 and the
+later allocation fix produce the same text as this implementation after
+removing carriage returns. The version 0.2.1 changelog claim that initializer
+directives keep their text does not hold for those CRLF recovery cases. The
+existing C and C++ initializer-directive fixtures demonstrate this limit.
+Ending restoration does not repair parser recovery. Avoid formatting affected
+inputs until the formatter supports them.
+
+A UTF-8 BOM is removed from BOM + CRLF input, as it was previously.
 
 ## Consequences
 
@@ -102,4 +107,5 @@ input, as it was previously.
 - Text matching is best effort on malformed recovery. Any token damage
   remains a separate formatter defect, not an ending-policy exception.
 - This changes default behavior; record it under Changed per
-  [ADR-0002](0002-changelog-is-for-users.md), without choosing a release version.
+  [ADR-0002](0002-changelog-is-for-users.md), without choosing a release
+  version.
