@@ -1,17 +1,17 @@
-int prepare_path(char *path) {
-    int ok = 1;
-    goto first;
-    while (ok--) {
+int count_down(int n) {
+    int left = n;
+    goto start;
+    while (left > 0) {
         {
-            char *slash = find_separator(path);
-            if (slash) {
-                *slash = 0;
-                prepare_path(path);
-                *slash = '/';
+            int step = next_step(left);
+            if (step > 1) {
+                left -= step;
+                report(left);
+                left += 1;
             }
         }
-first:
-        use(path);
+start:
+        left--;
     }
-    return ok;
+    return left;
 }
