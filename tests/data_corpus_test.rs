@@ -20,7 +20,7 @@
 // and expected file to confirm every command keeps its arguments and
 // comments. `bash_corpus_preserves_tokens` does the same for shell scripts,
 // `bash_corpus_keeps_meaning` compares bash's own printout of each script
-// before and after (when bash is installed), and
+// before and after (when bash 5.2 or later is installed), and
 // `bash_corpus_matches_prettier` (ignored) runs `prettier` with the
 // shell plugin named by `PRETTIER_PLUGIN_SH` (a path to prettier-plugin-sh,
 // which Prettier resolves only relative to where it is installed). Run the
@@ -532,8 +532,14 @@ fn bash_printout(source: &str) -> Option<String> {
 
 #[test]
 fn bash_corpus_keeps_meaning() {
-    if bash_printout("true").is_none() {
+    let Some(probe) = bash_printout("x=$(a  2>/dev/null)") else {
         eprintln!("bash not installed; skipping");
+        return;
+    };
+    // Bash before 5.2 prints a `$( )` body as written, so its printout
+    // would count layout inside one as a change of meaning.
+    if !probe.contains("$(a 2> /dev/null)") {
+        eprintln!("bash prints command substitutions as written (before 5.2); skipping");
         return;
     }
     for input in corpus_inputs("bash_corpus") {
