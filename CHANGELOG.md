@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
 ### Added
 
 - JSON (`.json`, `.jsonc`), YAML (`.yaml`, `.yml`), Markdown (`.md`,
@@ -91,7 +93,8 @@ assistance; see the README's AI Assistance section.
 Accountable reviewer: Brandon Arrendondo. Moldy is developed with AI
 assistance; see the README's AI Assistance section.
 
-[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.1.0...v0.2.0
