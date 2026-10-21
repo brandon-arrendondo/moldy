@@ -1,6 +1,8 @@
 - id: moldy
   name: moldy
-  description: Format C/C++ source files with moldy
+  description: Format C/C++ source files with moldy (override types_or for other languages)
   entry: moldy --in-place
   language: rust
   types_or: [c, c++]
+  # Show moldy's warnings (files left unchanged) even when the hook passes.
+  verbose: true

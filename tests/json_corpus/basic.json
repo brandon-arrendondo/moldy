@@ -1,0 +1,1 @@
+{"name":"moldy","version":"0.3.0","private":true,"tags":["fmt","tree-sitter"],"deps":{},"files":[],"build":{"steps":[{"run":"cargo build","timeout":30},{"run":"cargo test","env":{"RUST_LOG":"info"}}]},"license":null}

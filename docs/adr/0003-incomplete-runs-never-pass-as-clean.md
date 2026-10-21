@@ -45,8 +45,8 @@ or write a selected file cannot produce a clean result.
   - **2:** could not complete: discovery, read, parse, format or write
     failure; an empty selection without `--allow-empty`; a directory without
     `-r`; or a usage error.
-  The implementation must document these statuses and cover them with CLI
-  regressions before this guarantee is advertised.
+    The implementation must document these statuses and cover them with CLI
+    regressions before this guarantee is advertised.
 - Already produced output does not turn a partial run into a completed one.
   A failure after earlier in-place writes must remain a failure and explain
   that the operation may have changed those files. This decision does not

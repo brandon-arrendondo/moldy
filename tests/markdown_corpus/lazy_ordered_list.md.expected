@@ -1,0 +1,9 @@
+Only a list starting at 1 can interrupt a paragraph, so these lines
+3. **Push.** stay in it
+4. as written
+
+5. A blank line first starts a real list at 5.
+
+Paragraph again.
+
+1. This list starts at 1, so it interrupts.

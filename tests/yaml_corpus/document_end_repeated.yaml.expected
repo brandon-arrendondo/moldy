@@ -1,0 +1,5 @@
+# Repeated `...` markers add no empty document.
+a: 1
+# between
+---
+b: 2

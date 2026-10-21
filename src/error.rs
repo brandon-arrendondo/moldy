@@ -39,6 +39,42 @@ pub enum MoldyError {
         path: String,
     },
 
+    /// The source has a syntax error, so it is left unchanged. The JSON,
+    /// YAML, Markdown, CMake and Bash formatters return this rather than
+    /// format a partly understood file.
+    #[error("{language} syntax error at line {line}; file left unchanged")]
+    Syntax {
+        /// The language whose grammar rejected the file.
+        language: String,
+        /// 1-based line of the first syntax error.
+        line: usize,
+    },
+
+    /// Formatting would have changed what the document means, so it is
+    /// left unchanged. The Markdown formatter checks its output this way
+    /// because its grammar misreads some unusual input.
+    #[error(
+        "{language} could not be formatted without changing its meaning (line {line}); file left unchanged"
+    )]
+    Unverified {
+        /// The language of the file.
+        language: String,
+        /// 1-based line where the input and the formatted output first
+        /// differ, or where the grammar misreads the input.
+        line: usize,
+    },
+
+    /// The file nests deeper than the formatter accepts, so it is left
+    /// unchanged. The JSON, YAML, Markdown, CMake and Bash formatters
+    /// return this rather than exhaust the stack or the grammar's limits.
+    #[error("{language} is nested too deeply to format (line {line}); file left unchanged")]
+    TooDeep {
+        /// The language of the file.
+        language: String,
+        /// 1-based line where the nesting passes the limit.
+        line: usize,
+    },
+
     /// No formatter is registered for the file's detected language.
     #[error("unsupported language for: {0}")]
     UnsupportedLanguage(String),

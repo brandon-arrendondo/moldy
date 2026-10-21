@@ -5,6 +5,32 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Added
+
+- JSON (`.json`, `.jsonc`), YAML (`.yaml`, `.yml`), Markdown (`.md`,
+  `.markdown`), CMake (`CMakeLists.txt`, `.cmake`) and Bash (`.sh`, `.bash`)
+  formatting. JSON expands every object and array like `jq .`; YAML and
+  Markdown follow Prettier, with Markdown line breaks kept where they are;
+  CMake follows gersemi; Bash follows Prettier's shell plugin. A file in
+  one of these languages with a syntax error is left unchanged, with a
+  warning on stderr that does not change the exit status. A Markdown file
+  is also left unchanged, with a warning, when Moldy cannot confirm the
+  formatted document renders the same, and a file in any of these
+  languages that nests too deeply is left unchanged the same way. Library
+  users see these cases as `MoldyError::Syntax`, `MoldyError::Unverified`
+  and `MoldyError::TooDeep`. Warnings name the line of the
+  problem, and the pre-commit hook shows them. See the usage
+  guide for each language's known differences from its reference.
+- `[json]`, `[yaml]`, `[cmake]` and `[bash]` configuration sections for
+  indentation width and, for YAML and CMake, line width.
+
+### Changed
+
+- Recursive formatting (`-r`) now also selects files in these languages,
+  including every `CMakeLists.txt`. Add ignore patterns for files Moldy
+  should leave alone, such as generated JSON or prose you format another
+  way.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added

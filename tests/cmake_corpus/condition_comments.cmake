@@ -1,0 +1,35 @@
+if(A AND  # note
+   B)
+endif()
+while((A OR # c
+ B))
+endwhile()
+if(A AND
+   B # after b
+   AND (C OR D) # grp
+   AND NOT # neg
+   E)
+endif()
+
+# An operator's comment, then a group holding comments.
+if(A AND # c1
+ (B # c2
+))
+endif()
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND # clang
+ NOT WIN32 AND # not win
+ (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE # ab
+ ))
+  message(STATUS "x")
+endif()
+# A group holding a comment after a test word.
+if(EXISTS (A # c
+))
+endif()
+if(X AND NOT DEFINED (A # c
+))
+endif()
+if(DEFINED # c1
+ (B # c2
+))
+endif()

@@ -1,0 +1,27 @@
+tar czf /tmp/x-$DAY-OLD$EXT.tar.gz $D/
+cmake -DMODE="${MODE}" x${Y}"z"
+case "  $SET  " in
+  *"  $one  "*) echo found ;;
+esac
+x="$( (ls -ld $p | awk '{print $1}') 2> /dev/null)"
+d=$(dirname $"HERE")
+echo >&2 "msg"
+f() {
+  name=$1 val=$2
+  shift 2
+}
+[[ "$w" == -*= ]] && w=""
+sed "s/^${k} ${n}/${k} $(($n + 1))/" list > "$OUT/x"
+# A `{name}` or a number touching a redirection names its file descriptor.
+exec {fd}> file
+exec {fd}<&0
+cmd {fd}>&-
+exec 0<&5 5>&-
+cat << EOF 1>&2 0<&3
+x
+EOF
+# Values written without a space are one word.
+for f in $1/$2 "$1"/$2 x$1$2; do echo "$f"; done
+a=($1/$2 x)
+# After an assignment on its line, a reserved word names a command.
+x=1 fi

@@ -41,12 +41,29 @@ cargo test --test python_corpus_test -- --ignored
 
 Run those reference checks when changing Python emission or fixtures. They validate the fixture expectations, not arbitrary project output.
 
+JSON, YAML, Markdown, CMake and Bash fixtures live in `tests/<language>_corpus` and run from `tests/data_corpus_test.rs`. The default suite checks expected output and idempotency, and re-parses CMake and Bash output to confirm that every command argument, shell token and comment is kept. Its ignored checks compare fixtures with the reference formatters and confirm meaning is preserved:
+
+| Language | Ignored check needs                                                                                   |
+| -------- | ----------------------------------------------------------------------------------------------------- |
+| JSON     | `python3` (layout of `json.dumps(indent=2)`).                                                         |
+| YAML     | `prettier` on `PATH`; `python3` with PyYAML (parse events).                                           |
+| Markdown | `prettier` on `PATH`; `python3` with markdown-it-py (rendered HTML).                                  |
+| CMake    | `gersemi` on `PATH`.                                                                                  |
+| Bash     | `prettier` on `PATH` and `PRETTIER_PLUGIN_SH` set to the path of prettier-plugin-sh's `lib/index.js`. |
+
+```sh
+PRETTIER_PLUGIN_SH=/path/to/node_modules/prettier-plugin-sh/lib/index.js \
+  cargo test --test data_corpus_test -- --ignored
+```
+
+Each reference test lists the fixtures that knowingly differ (for example `prettier_deviations.md`). When changing these formatters, also run them over real files and compare with the reference formatter; the small corpus does not cover every layout. Keep a gersemi installation off `PATH` apart from its executable when its environment's `python3` lacks the packages the other checks need.
+
 ## Updating the substrate
 
 Update the manifest and lockfile together. Keep default features disabled and enable only implemented formatters. Prefer a targeted dependency update:
 
 ```sh
-cargo update -p lang-parsing-substrate --precise 0.11.2
+cargo update -p lang-parsing-substrate --precise 0.12.0
 ```
 
 Inspect grammar and tree-sitter version changes. Build the old and new versions, format the same pinned inputs with identical presets, and compare stdout, stderr, and exit status. Include malformed acceptance inputs and recursive selection; expected-file tests alone do not establish that all previous behavior is unchanged. Re-run required checks and public API documentation checks.

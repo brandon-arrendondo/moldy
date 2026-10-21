@@ -1,0 +1,19 @@
+// Settings for the editor.
+{ // first line
+  "editor.tabSize": 4, // spaces
+  /* block comment before a member */
+  "files.exclude": {
+    "**/target": true,
+    "**/.git": true
+  },
+
+  "search.exclude": { // nothing yet
+  },
+  "numbers": [
+    1.5e3,
+    -0.25,
+    0
+  ]
+
+  // trailing note
+}

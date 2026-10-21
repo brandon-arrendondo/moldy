@@ -1,6 +1,6 @@
 # moldy
 
-A tree-sitter based formatter for C, C++, Rust, and Python. C/C++ formatting targets [funky](https://github.com/brandon-arrendondo/funky); the checked-in corpus verifies matching expected output. Rust and Python have their own corpus and idempotency tests, with compatibility limits described in the [usage guide](docs/usage.md).
+A tree-sitter based formatter for C, C++, Rust, Python, JSON, YAML, Markdown, CMake, and Bash. C/C++ formatting targets [funky](https://github.com/brandon-arrendondo/funky); the checked-in corpus verifies matching expected output. JSON follows `jq .`, YAML and Markdown follow Prettier, CMake follows gersemi, and Bash follows Prettier's shell plugin. Every language has its own corpus and idempotency tests, with compatibility limits described in the [usage guide](docs/usage.md).
 
 ## Installation
 
@@ -36,7 +36,7 @@ moldy --preset black example.py
 moldy --dump-tree src/foo.c
 ```
 
-Use filenames with recognized extensions. Stdin is not implemented. Recursive discovery skips `.h`; pass C headers explicitly. `.hpp` and `.hxx` use C++ and are discovered recursively. See [usage](docs/usage.md) for all options, extensions, exit behavior, and limitations.
+Use filenames with recognized extensions, or `CMakeLists.txt`. Stdin is not implemented. Recursive discovery skips `.h`; pass C headers explicitly. `.hpp` and `.hxx` use C++ and are discovered recursively. See [usage](docs/usage.md) for all options, extensions, exit behavior, and limitations.
 
 ## Configuration
 
@@ -51,6 +51,9 @@ patterns = ["vendor/**", "*.pb.h"]
 
 [python]
 max_width = 79
+
+[cmake]
+max_width = 80
 ```
 
 The nearest `toolchain.toml` found by walking up from the current working directory contributes shared `[ignore].paths`. See [configuration](docs/configuration.md) for complete defaults and preset names.
@@ -72,14 +75,14 @@ repos:
   - repo: https://github.com/brandon-arrendondo/moldy
     rev: v0.1.0
     hooks:
-      - id: moldy  # runs moldy --in-place
+      - id: moldy # runs moldy --in-place
 ```
 
-Pin a released tag when using the hook; choose the release whose behavior you want to use.
+Pin a released tag when using the hook; choose the release whose behavior you want to use. The hook formats C and C++ files. To run it on other languages, override `types_or` in your hook entry, for example `types_or: [c, c++, markdown, yaml]`. Add the `shell` type only when every shell script in the repository ends in `.sh` or `.bash`: the type also matches `.zsh` files and extensionless scripts, which Moldy reports as unsupported.
 
 ## Relationship to funky
 
-Moldy uses a concrete syntax tree instead of funky's lexer and token stream. Its C/C++ formatting configuration aims to be compatible with funky, and `--dump-tree` replaces `--dump-tokens`. Passing the local corpus is evidence for those fixtures, rather than a guarantee of identical output on every C/C++ program. Rust and Python formatting do not have a funky parity target.
+Moldy uses a concrete syntax tree instead of funky's lexer and token stream. Its C/C++ formatting configuration aims to be compatible with funky, and `--dump-tree` replaces `--dump-tokens`. Passing the local corpus is evidence for those fixtures, rather than a guarantee of identical output on every C/C++ program. The other languages do not have a funky parity target.
 
 ## AI Assistance
 

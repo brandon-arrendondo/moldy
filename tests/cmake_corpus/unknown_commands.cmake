@@ -1,0 +1,13 @@
+MY_FN(  a   b
+      c )
+my_fn(a b c d e f g h i j k l m n o p q r s t u v w x y z aa bb cc dd ee ff gg)
+my_fn( a )
+function(drop_part box part)
+  show_note(
+    "The part `${part}` is taken out of "
+    "the box `${box}` now")
+  show_note("a multi-line string
+    keeps its own indentation" [=[and a
+      bracket argument]=])
+endfunction()
+target_compile_definitions(lib PUBLIC CONFIG_FILE="${CONFIG_FILE}" x${Y}"z")

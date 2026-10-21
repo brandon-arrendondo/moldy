@@ -1,0 +1,45 @@
+my_custom_command(alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu)
+my_custom_command(ALPHA beta GAMMA delta EPSILON zeta ETA theta IOTA kappa LAMBDA mu)
+target_link_libraries(demo_long_target_name PRIVATE some::library another::library PUBLIC third::lib)
+add_library(mylib STATIC src/one.c src/two.c src/three.c src/four.c src/five.c src/six.c)
+target_sources(mylib PRIVATE src/one.c src/two.c src/three.c PUBLIC include/one.h include/two.h)
+target_compile_definitions(mylib PRIVATE FOO=1 BAR=2 BAZ=3 QUX=4 QUUX=5 CORGE=6 GRAULT=7 GARPLY=8)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT CMAKE_CROSSCOMPILING)
+endif()
+find_package(Boost 1.70 REQUIRED COMPONENTS system filesystem thread program_options regex)
+set_target_properties(mylib PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+add_custom_command(OUTPUT generated.c COMMAND python3 gen.py --out generated.c DEPENDS gen.py COMMENT "Generating")
+option(MOLDY_OPT "An option with a long description that goes over the limit for sure" OFF)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_CURRENT_SOURCE_DIR}/more/cmake)
+message(STATUS "A very long status message that definitely exceeds the eighty column width limit")
+set(VAR "value") # c
+set(
+  X
+  1
+)
+target_link_libraries(demo PRIVATE some::library another::library third::library fourth::library fifth::library sixth::library)
+install(TARGETS demo another_target third_target fourth_target fifth_target sixth_target RUNTIME DESTINATION bin)
+install(FILES a.h b.h DESTINATION include COMPONENT dev)
+set(SOURCES_A a.c)
+set(VERY_LONG_VARIABLE_NAME_FOR_TESTING "a quoted value that is long enough to overflow")
+add_executable(demo_with_a_really_long_name_that_overflows main.c util.c helpers.c)
+if(A)
+  if(B)
+    target_link_libraries(demo PRIVATE some::library another::library third::lib)
+  endif()
+endif()
+set(EMPTY)
+cmake_minimum_required(VERSION 3.20...3.28 FATAL_ERROR)
+project(demo_project VERSION 1.2.3 DESCRIPTION "A long project description string" LANGUAGES C)
+set_target_properties(mylib otherlib PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON OUTPUT_NAME foo)
+if(A)
+
+  set(X 1)
+
+endif()
+target_link_libraries(demo
+  PRIVATE a # why a
+  # own line
+  b)
+add_custom_command(OUTPUT generated.c COMMAND python3 gen.py --out generated.c --very-long-flag value DEPENDS gen.py VERBATIM)
+set_property(TARGET demo APPEND PROPERTY COMPILE_DEFINITIONS FOO=1 BAR=2 BAZ=3 QUX=4 QUUX=5 CORGE=6)

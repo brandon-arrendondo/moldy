@@ -1,0 +1,14 @@
+# A comment on a dropped `...` keeps its own line, so it cannot join a
+# block scalar's last line.
+a: |
+  x
+... # c
+---
+- >-
+  y
+  z
+... # d
+... # e
+---
+b: plain
+... # f

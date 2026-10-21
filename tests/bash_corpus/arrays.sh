@@ -1,0 +1,22 @@
+a=(
+  x # trailing
+  y
+)
+declare -A t=(
+  [a]="x"
+  # an own-line comment
+  # [b]=""
+)
+b=(
+  x   # c1
+      yyyy zz # c2
+
+  w
+    )
+if true; then
+  c=( p
+  q )
+fi
+d=(one two)
+FILES=(
+)

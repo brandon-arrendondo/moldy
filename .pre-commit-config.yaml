@@ -6,8 +6,16 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
+        # Trailing spaces are hard line breaks in the Markdown fixtures, part
+        # of a block scalar's value in YAML, and an escaped blank in Bash.
+        exclude: ^tests/(markdown_corpus/|yaml_corpus/block_scalar_|bash_corpus/(grammar_error_escaped_blank|kept_as_written))
       - id: end-of-file-fixer
+        # A fixture tests a code fence closed on a last line with no newline,
+        # and another a kept (`|+`) block scalar's blank line at the end.
+        exclude: ^tests/(markdown_corpus/fence_at_eof\.md$|yaml_corpus/block_scalar_)
       - id: check-yaml
+        # Formatter fixtures include multi-document and malformed YAML.
+        exclude: ^tests/yaml_corpus/
       - id: check-toml
       - id: check-added-large-files
       - id: mixed-line-ending

@@ -1,0 +1,30 @@
+# top comment
+name:    ci   # trailing
+on:
+    push:
+        branches: [ main,  'release/*' ]
+    pull_request: {types:   [opened, synchronize]}
+jobs:
+    build:
+        runs-on: 'ubuntu-latest'
+        steps:
+        - uses: actions/checkout@v4
+        -   name: Run
+            run: |
+                cargo build
+                  cargo test
+        - name: "Say \"hi\""
+          with: {a: 1, b: 'it''s'}
+
+
+        -   - nested
+            - seq
+empty:
+nulls: ~
+anchors: &base
+  x: 1
+merged:
+  <<: *base
+---
+second: doc
+...

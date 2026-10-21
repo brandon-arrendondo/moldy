@@ -1,0 +1,26 @@
+keep: |+
+  kept trailing
+
+next: 1
+strip: >-
+  text
+a:
+  - x
+
+
+  - y   # c1
+  # dangling
+b: !!map
+  k: v
+seq_of_maps:
+- a: 1
+  b: 2
+-
+  c: 3
+- # comment on dash
+  d: 4
+dq_mixed: "say \"hi\" it's"
+sq_quote: 'say "hi"'
+url: "https://example.com/a?b=c"
+empty_str: ''
+crlf_safe: x

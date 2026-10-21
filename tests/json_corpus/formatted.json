@@ -1,0 +1,15 @@
+{
+  "unicode": "café ☃",
+  "nested": [
+    [
+      1,
+      2
+    ],
+    [],
+    {
+      "a": false
+    }
+  ],
+  "negative": -3,
+  "escaped": "tab\t quote\" slash\\ \u2603"
+}

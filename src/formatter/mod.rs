@@ -1,9 +1,17 @@
+mod bash;
 mod c_cpp;
+mod cmake;
+mod cmake_signatures;
+mod json;
 mod line_endings;
+mod markdown;
+mod markdown_check;
+mod markdown_emphasis;
 mod output;
 
 mod python;
 mod rust;
+mod yaml;
 
 pub use line_endings::LineEndings;
 
@@ -39,9 +47,102 @@ pub fn format_source_with_line_endings(
         "c" | "cpp" => c_cpp::format(source, info.key, config),
         "rust" => rust::format(source, config),
         "python" => python::format(source, config),
+        "json" => json::format(source, config),
+        "yaml" => yaml::format(source, config),
+        "markdown" => markdown::format(source, config),
+        "cmake" => cmake::format(source, config),
+        "bash" => bash::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
     }?;
     Ok(line_endings::restore(source, &formatted, policy))
+}
+
+/// `text` without trailing ASCII whitespace, keeping a character escaped
+/// by a backslash (`a\ ` ends in an escaped space).
+fn unescaped_trim_end(mut text: &str) -> &str {
+    while let Some(rest) = text.strip_suffix([' ', '\t', '\r', '\n']) {
+        if (rest.len() - rest.trim_end_matches('\\').len()) % 2 == 1 {
+            break;
+        }
+        text = rest;
+    }
+    text
+}
+
+/// The deepest syntax tree the JSON, YAML, Markdown, CMake and Bash
+/// formatters accept. Their emitters recurse at least once per level.
+const MAX_TREE_DEPTH: usize = 400;
+
+/// `MoldyError::TooDeep` if `root` nests more than `MAX_TREE_DEPTH` levels.
+fn check_depth(language: &str, root: tree_sitter::Node) -> Result<(), MoldyError> {
+    let mut cursor = root.walk();
+    let mut depth = 0;
+    loop {
+        if depth > MAX_TREE_DEPTH {
+            return Err(too_deep(language, cursor.node().start_position().row));
+        }
+        if cursor.goto_first_child() {
+            depth += 1;
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return Ok(());
+            }
+            depth -= 1;
+        }
+    }
+}
+
+/// The deepest block nesting the Markdown and YAML formatters accept, and
+/// the deepest Markdown emphasis formatted, checked before parsing.
+const MAX_BLOCK_DEPTH: usize = 240;
+
+/// `MoldyError::TooDeep` for the first line of `source` on which
+/// `estimate`, an upper bound on the blocks open there, passes
+/// `MAX_BLOCK_DEPTH`. Checked before parsing.
+fn check_block_depth(
+    language: &str,
+    source: &str,
+    estimate: impl Fn(&str) -> usize,
+) -> Result<(), MoldyError> {
+    match source
+        .lines()
+        .position(|line| estimate(line) > MAX_BLOCK_DEPTH)
+    {
+        Some(row) => Err(too_deep(language, row)),
+        None => Ok(()),
+    }
+}
+
+fn too_deep(language: &str, row: usize) -> MoldyError {
+    MoldyError::TooDeep {
+        language: language.to_string(),
+        line: row + 1,
+    }
+}
+
+/// The error for a tree with a syntax error, naming the line of the first
+/// `ERROR` or `MISSING` node.
+fn syntax_error(language: &str, root: tree_sitter::Node) -> MoldyError {
+    let mut stack = vec![root];
+    let mut first: Option<usize> = None;
+    while let Some(node) = stack.pop() {
+        if !node.has_error() {
+            continue;
+        }
+        if node.is_error() || node.is_missing() {
+            let row = node.start_position().row;
+            first = Some(first.map_or(row, |f| f.min(row)));
+            continue;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    MoldyError::Syntax {
+        language: language.to_string(),
+        line: first.map_or(1, |row| row + 1),
+    }
 }
 
 /// Print the tree-sitter CST to stdout (debug aid, analogous to funky's

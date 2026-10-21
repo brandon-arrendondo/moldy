@@ -1,0 +1,7 @@
+{
+  "note": "the grammar rejects a + in an exponent, so this is left unchanged",
+  "f": 1e+10,
+  "g": [
+    1.0E+3
+  ]
+}

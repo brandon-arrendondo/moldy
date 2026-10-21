@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: x
+        args: [a]
+  # dedented to repos item level
+  - repo: other
+# top level comment
+key:
+  # leading nested comment
+  nested: 1
+desc: >-     # optional
+  text
+k2:
+    deep: 1
+    # same level
+    deeper:
+        x: 1
+  # between levels
+k3: 1

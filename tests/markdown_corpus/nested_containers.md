@@ -1,0 +1,31 @@
+* Install:
+
+   ```sh
+   cargo install moldy
+   ```
+* Configure
+  > **Note**
+  > settings live in `moldy.toml`
+* Done
+
+> Quoted list:
+> 1. alpha
+> 2. beta
+>
+> ```
+> code in quote
+> ```
+
+   ```text
+   fence indented three spaces
+     keeps relative indent
+   ```
+
+| Range | Indicator | Meaning |
+|--------|------------|---------|
+| 1–10 | 😊 Good | Low |
+| 50+ | 😢 Critical| Urgent |
+
+Right | Left
+--:|:--
+1 | 2

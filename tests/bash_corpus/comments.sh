@@ -1,0 +1,34 @@
+{
+    nproc || # Linux
+    sysctl -n hw.ncpu || # BSD
+    echo 1
+} 2>/dev/null
+if a; then
+  b
+  # end of then
+else
+  c
+  # end of else
+fi
+a=1 # x
+bbbbbb=2 # y
+
+cc # z
+d
+e # w
+if x; then # q
+  long_command arg # r
+fi
+while [ $x ] ; ## trailing the loop header
+  do
+    case $1 in
+      -h) usage ;; # help
+      *) break
+        ;;
+      # after the last item
+    esac
+  done
+if [ "$x" != h ]; ## on -h, nothing more
+  then
+    echo go
+fi

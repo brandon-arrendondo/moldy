@@ -2,10 +2,10 @@
 
 @AGENTS.md
 
-Moldy is a tree-sitter based formatter for C, C++, Rust, and Python. The
-C/C++ formatter targets funky's formatting policy; corpus tests compare
-checked-in expected output. Rust and Python have separate fixtures and
-compatibility limits. See [documentation](README.md#documentation).
+Moldy is a tree-sitter based formatter for C, C++, Rust, Python, JSON,
+YAML, Markdown, CMake, and Bash. The C/C++ formatter targets funky's
+formatting policy; corpus tests compare checked-in expected output. The
+other languages have separate fixtures and compatibility limits. See [documentation](README.md#documentation).
 
 ## Task tracking
 
@@ -15,18 +15,26 @@ is no repository-local task database or `.todo-sqlite-cli` marker.
 
 ## Module structure
 
-| File | Responsibility |
-| --- | --- |
-| `src/main.rs` | clap CLI, config loading, shared ignore merge, recursive discovery, UTF-8 reads, output/check/write modes. |
-| `src/config.rs` | Formatting schema and defaults; C/C++ policies aim to match funky. |
-| `src/error.rs` | Public error types. |
-| `src/formatter/mod.rs` | Public `Formatter` trait, `format_source` dispatch, `dump_tree`. |
-| `src/formatter/c_cpp.rs` | Implemented C/C++ structural emitter, expression leaf walking, comment and enum alignment. |
-| `src/formatter/rust.rs` | Recursive emitter with pairwise spacing and structural handlers for blocks, lists, fields, match arms, and where clauses. |
-| `src/formatter/python.rs` | Recursive emitter with statement/block indentation and width-based bracketed-list wrapping. |
-| `src/formatter/output.rs` | Shared output operations. |
-| `src/presets.rs` | Embedded preset lookup. |
-| `src/toolchain.rs` | Discover nearest shared `toolchain.toml` from the working directory; deserialize only ignore paths. |
+| File                                 | Responsibility                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `src/main.rs`                        | clap CLI, config loading, shared ignore merge, recursive discovery, UTF-8 reads, output/check/write modes.                |
+| `src/config.rs`                      | Formatting schema and defaults; C/C++ policies aim to match funky.                                                        |
+| `src/error.rs`                       | Public error types.                                                                                                       |
+| `src/formatter/mod.rs`               | Public `Formatter` trait, `format_source` dispatch, `dump_tree`.                                                          |
+| `src/formatter/c_cpp.rs`             | Implemented C/C++ structural emitter, expression leaf walking, comment and enum alignment.                                |
+| `src/formatter/rust.rs`              | Recursive emitter with pairwise spacing and structural handlers for blocks, lists, fields, match arms, and where clauses. |
+| `src/formatter/python.rs`            | Recursive emitter with statement/block indentation and width-based bracketed-list wrapping.                               |
+| `src/formatter/json.rs`              | Expand-all JSON/JSONC layout (`jq .`, `json.dumps(indent=2)`).                                                            |
+| `src/formatter/yaml.rs`              | YAML layout targeting Prettier.                                                                                           |
+| `src/formatter/markdown.rs`          | Markdown blocks and inline text targeting Prettier (`proseWrap: preserve`); checks its output's shape against the input.  |
+| `src/formatter/markdown_emphasis.rs` | CommonMark emphasis pairing, used to trust and verify emphasis rewrites.                                                  |
+| `src/formatter/markdown_check.rs`    | Independent CommonMark reading (pulldown-cmark) of input and output, for the Markdown check.                              |
+| `src/formatter/cmake.rs`             | CMake layout targeting gersemi; `cmake_signatures.rs` holds Moldy's own command signature table.                          |
+| `src/formatter/bash.rs`              | Bash layout targeting Prettier's shell plugin (shfmt printer).                                                            |
+| `src/formatter/line_endings.rs`      | Maps source line endings onto formatted output.                                                                           |
+| `src/formatter/output.rs`            | Shared output operations.                                                                                                 |
+| `src/presets.rs`                     | Embedded preset lookup.                                                                                                   |
+| `src/toolchain.rs`                   | Discover nearest shared `toolchain.toml` from the working directory; deserialize only ignore paths.                       |
 
 ## Formatter invariants
 
@@ -38,9 +46,20 @@ C preprocessor directives, Rust attributes/macros, and Python strings/f-strings
 have opaque emission paths. Do not introduce analysis dead-code blanking into
 formatting: text in inactive preprocessor branches must be retained.
 
-Formatters currently continue over syntax errors. Unknown C/C++ nodes emit
-source text; the entire file is not guaranteed to pass through unchanged.
-Verify malformed fixtures when changing emission.
+The C, C++, Rust and Python formatters continue over syntax errors. Unknown
+C/C++ nodes emit source text; the entire file is not guaranteed to pass
+through unchanged. The JSON, YAML, Markdown, CMake and Bash formatters
+return `MoldyError::Syntax` for any syntax error (`root.has_error()`); the
+CLI warns and leaves the file unchanged. They return `MoldyError::TooDeep`
+for nesting past `MAX_TREE_DEPTH` (and Markdown and YAML past
+`MAX_BLOCK_DEPTH`, estimated before parsing); keep both guards ahead of any
+recursion. Markdown also returns
+`MoldyError::Unverified` when its re-parsed output's shape differs from the
+input's; keep that check passing on real documents, not only the corpus. Where a grammar accepts input the
+language rejects or reads it differently (Markdown flanking and lazy lists,
+Bash `>#`), keep the affected text as written rather than reformat it.
+Verify
+malformed fixtures when changing emission.
 
 ## C/C++ parity
 
@@ -70,15 +89,39 @@ Python fixtures or emission, run the external reference check with installed
 cargo test --test python_corpus_test -- --ignored
 ```
 
+## JSON, YAML, Markdown, CMake and Bash
+
+Fixtures are in `tests/<language>_corpus` and run from
+`tests/data_corpus_test.rs`. Reference formatters: JSON `json.dumps(indent=2)`,
+YAML Prettier, Markdown Prettier `--prose-wrap preserve`, CMake gersemi, Bash
+Prettier with prettier-plugin-sh. Each reference test names its known
+deviation fixtures. The default suite also re-parses CMake and Bash output and
+compares arguments, tokens and comments; keep those checks passing. When
+changing one of these formatters, run the ignored checks (see
+[development](docs/development.md)) and compare against the reference on real
+files, not only the corpus:
+
+```sh
+PRETTIER_PLUGIN_SH=/path/to/prettier-plugin-sh/lib/index.js \
+  cargo test --test data_corpus_test -- --ignored
+```
+
+gersemi's signature table is MPL-2.0; do not copy it. Extend
+`cmake_signatures.rs` from the CMake documentation.
+
 ## Substrate
 
-`lang-parsing-substrate` 0.11.2 owns registry metadata, grammar access, and glob
-matching. Disable default features and enable only the four implemented
+`lang-parsing-substrate` 0.12.0 owns registry metadata, grammar access, and glob
+matching. Disable default features and enable only the nine implemented
 formatters. `language_info_for_file` drives dispatch; `language_for_key`
-provides grammars; `language_for_file` serves tree dumping; `PathIgnore` serves
-path matching. Recursive discovery uses `is_source_extension` and skips `.h`.
-Explicit `.h` files use C, with no content sniffing. Do not duplicate extension
-lists in production code.
+provides grammars, including `markdown_inline`; `language_for_file` serves tree
+dumping; `PathIgnore` serves path matching; `markdown::ContentMap` strips
+Markdown container prefixes. Recursive discovery uses `is_discoverable_file`,
+which matches extensions and file names such as `CMakeLists.txt` and skips
+`.h`. Explicit `.h` files use C, with no content sniffing. Do not duplicate
+extension or file-name lists in production code. Logic another substrate
+consumer could use (document structure, language facts) belongs in the
+substrate; layout policy stays in Moldy.
 
 The substrate provides no shared TOML loader in this version; keep the shared
 ignore subset's discovery in `src/toolchain.rs`. Analysis APIs (metrics,

@@ -1,0 +1,56 @@
+until # retry until the read succeeds
+  # a comment inside the condition
+  read -N 1 -r -s
+  expr "$REPLY" : "$PATTERN" 1> /dev/null
+do :; done
+while
+  a
+  b
+do c; done
+if # why
+  a
+then b; fi
+if a "$b" \
+  && ! c; then
+  d
+fi
+f() { # a comment before the body
+  echo
+}
+function g { # another
+  echo
+}
+h() {
+  a
+} 7>&2 2>&4
+case $x in
+  *\<* | *\|* | b) a ;;
+esac
+# A comment after a loop or `if` header moves after `do` or `then`, and
+# the body written after it takes its own line.
+while a; do # c
+  b
+done
+until a; do # c
+  b
+done
+if a; then # c
+  b
+fi
+if a; then
+  x
+elif c; then # c
+  d
+fi
+for i in 1 2; do # c
+  echo $i
+done
+case $x in
+  *\\ | c) echo ;;
+esac
+# Only the statement the grammar misreads (`$2` as `$` and a command `2`)
+# is kept as written; the rest of the function is formatted.
+f() {
+  d=$X/m/$2
+  echo a
+}

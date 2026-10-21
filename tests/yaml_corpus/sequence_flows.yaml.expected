@@ -1,0 +1,22 @@
+- [
+    alpha,
+    beta,
+    gamma,
+    delta,
+    epsilon,
+    zeta,
+    eta,
+    theta,
+    iota,
+    kappa,
+    lambda,
+    mu,
+  ]
+- [
+    [a, b],
+    { c: d },
+    [alpha, beta, gamma, delta, epsilon, zeta, eta, theta, iota, kappa, lambda],
+  ]
+- |2
+      indented
+    base

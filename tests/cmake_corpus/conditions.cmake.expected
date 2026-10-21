@@ -1,0 +1,49 @@
+my_unknown_command(alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi)
+target_link_libraries(
+    demo
+    PRIVATE some::library another::library third::library fourth::library fifth
+)
+set(CACHED_VAR
+    "a long default value for the cache variable"
+    CACHE STRING
+    "Docstring for the var"
+)
+if(
+    (A OR B)
+    AND (C OR D OR E OR F OR G OR H OR I OR J OR K OR L OR M OR N OR O OR P OR Q)
+)
+endif()
+target_compile_options(
+    t
+    PRIVATE $<$<CONFIG:Debug>:-O0 -g> $<$<CONFIG:Release>:-O3> -Wall -Wextra
+)
+set(LIST_VAR a;b;c)
+message(
+    "multi
+line string"
+)
+include(GNUInstallDirs)
+add_subdirectory(src)
+set(Upper 1)
+if(
+    NOT WANT_LOW_MAJOR STREQUAL HAVE_MAJOR
+    OR (
+        (
+            WANT_TOP_KIND STREQUAL "CLOSED"
+            AND NOT WANT_TOP_MAJOR STREQUAL HAVE_MAJOR
+        )
+        OR (
+            WANT_TOP_KIND STREQUAL "OPEN"
+            AND NOT WANT_TOP_VERSION VERSION_LESS_EQUAL HAVE_MAJOR_PLUS_ONE
+        )
+    )
+)
+endif()
+if(
+    HOST
+    AND "x${TOOL_${_CURRENT_LANGUAGE_NAME}_VENDOR_ID}" STREQUAL "xACME"
+    AND OTHER
+)
+endif()
+foreach(option A B)
+endforeach(option)

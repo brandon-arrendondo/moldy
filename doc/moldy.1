@@ -16,10 +16,13 @@ or checks whether any file would change
 moldy uses tree-sitter to parse source files and is the spiritual successor
 to
 .BR funky (1).
-It supports C, C++, Rust, and Python. C/C++ formatting targets funky's
-rules; checked-in corpus tests verify the expected output on those fixtures.
-Rust and Python presets implement selected rustfmt and Black-style policies,
-with compatibility limits described in the usage guide.
+It supports C, C++, Rust, Python, JSON, YAML, Markdown, CMake, and Bash.
+C/C++ formatting targets funky's rules; checked-in corpus tests verify the
+expected output on those fixtures.
+Rust and Python presets implement selected rustfmt and Black-style policies.
+JSON follows jq, YAML and Markdown follow Prettier, CMake follows gersemi,
+and Bash follows Prettier's shell plugin. Compatibility limits are
+described in the usage guide.
 .PP
 The formatter is Unicode-safe: identifiers, string literals, and comments
 containing multi-byte UTF-8 sequences (CJK characters, accented letters,
@@ -32,7 +35,8 @@ file in the current directory, or by the file given with
 All configuration keys are optional; built-in defaults are used for any
 keys that are absent.
 .PP
-Inputs must be UTF-8 files with recognised extensions. Standard input is
+Inputs must be UTF-8 files with recognised extensions, or files named
+CMakeLists.txt. Standard input is
 not implemented; a file argument of \- is treated as a filesystem path.
 Multiple formatted files are concatenated on standard output without
 filename separators.
@@ -50,7 +54,7 @@ printed to standard error.
 .TP
 .BR \-r ", " \-\-recursive
 Recurse into directories, formatting all source files with recognised
-extensions. C .h headers are explicit-only and skipped by recursive
+extensions and every CMakeLists.txt. C .h headers are explicit-only and skipped by recursive
 discovery; .hpp and .hxx select C++ and are discovered recursively.
 .TP
 .BI \-c " FILE" "\fR,\fP " \-\-config " FILE"
@@ -139,6 +143,20 @@ collapse_field_lists = false
 [python]
 max_width = 79
 
+[json]
+indent_width = 2
+
+[yaml]
+indent_width = 2
+max_width = 80
+
+[cmake]
+indent_width = 4
+max_width = 80
+
+[bash]
+indent_width = 2
+
 [ignore]
 patterns = ["vendor/**", "third_party/**", "*.pb.h"]
 .fi
@@ -157,8 +175,11 @@ mode: one or more files would change.  Otherwise: a fatal error occurred.
 .B 2
 Command-line argument parsing failed.
 .SH LIMITATIONS
-Formatters continue over syntax-error trees; successful formatting does not
-validate syntax or guarantee malformed source is unchanged. An in-place
+The C, C++, Rust and Python formatters continue over syntax-error trees;
+successful formatting does not validate syntax or guarantee malformed source
+is unchanged. The JSON, YAML, Markdown, CMake and Bash formatters leave a
+file with any syntax error unchanged and print a warning; the warning does
+not change the exit status. An in-place
 error does not roll back files already written. A successful check with no
 selected files does not establish that any source was checked.
 .SH SEE ALSO

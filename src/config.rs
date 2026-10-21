@@ -30,6 +30,104 @@ pub struct Config {
     pub rust: RustConfig,
     /// Python-specific formatting knobs.
     pub python: PythonConfig,
+    /// JSON-specific formatting knobs.
+    pub json: JsonConfig,
+    /// YAML-specific formatting knobs.
+    pub yaml: YamlConfig,
+    /// CMake-specific formatting knobs.
+    pub cmake: CmakeConfig,
+    /// Bash-specific formatting knobs.
+    pub bash: BashConfig,
+}
+
+/// Rejects an indent width of 0, which would flatten nesting and, in YAML,
+/// change what the document means.
+fn positive_width<'de, D: Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
+    let width = u8::deserialize(d)?;
+    if width == 0 {
+        return Err(serde::de::Error::custom("indent_width must be at least 1"));
+    }
+    Ok(width)
+}
+
+// ── Bash ─────────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/bash.rs`. The default matches Prettier's
+/// shell plugin.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct BashConfig {
+    /// Spaces per nesting level. Bash output always indents with spaces.
+    #[serde(deserialize_with = "positive_width")]
+    pub indent_width: u8,
+}
+
+impl Default for BashConfig {
+    fn default() -> Self {
+        Self { indent_width: 2 }
+    }
+}
+
+// ── CMake ────────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/cmake.rs`. The default matches gersemi.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CmakeConfig {
+    /// Spaces per nesting level. CMake output always indents with spaces.
+    #[serde(deserialize_with = "positive_width")]
+    pub indent_width: u8,
+    /// Column budget before a command's arguments are broken over lines.
+    pub max_width: u32,
+}
+
+impl Default for CmakeConfig {
+    fn default() -> Self {
+        Self {
+            indent_width: 4,
+            max_width: 80,
+        }
+    }
+}
+
+// ── YAML ─────────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/yaml.rs`. The default matches Prettier.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct YamlConfig {
+    /// Spaces per nesting level. YAML output always indents with spaces.
+    #[serde(deserialize_with = "positive_width")]
+    pub indent_width: u8,
+    /// Column budget for flow collections (`[a, b]`, `{ a: 1 }`).
+    pub max_width: u32,
+}
+
+impl Default for YamlConfig {
+    fn default() -> Self {
+        Self {
+            indent_width: 2,
+            max_width: 80,
+        }
+    }
+}
+
+// ── JSON ─────────────────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/json.rs`. The default matches `jq .` and
+/// `json.dumps(indent=2)`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct JsonConfig {
+    /// Spaces per nesting level. JSON output always indents with spaces.
+    #[serde(deserialize_with = "positive_width")]
+    pub indent_width: u8,
+}
+
+impl Default for JsonConfig {
+    fn default() -> Self {
+        Self { indent_width: 2 }
+    }
 }
 
 // ── Python ───────────────────────────────────────────────────────────────────
@@ -476,6 +574,17 @@ mod tests {
         assert_eq!(cfg.indent.style, IndentStyle::Spaces);
         assert_eq!(cfg.indent.width, 4);
         assert_eq!(cfg.newline_str(), "\n");
+    }
+
+    #[test]
+    fn zero_indent_width_is_rejected() {
+        for section in ["json", "yaml", "cmake", "bash"] {
+            let text = format!("[{section}]\nindent_width = 0\n");
+            let err = toml::from_str::<Config>(&text).unwrap_err();
+            assert!(err.to_string().contains("at least 1"), "{section}: {err}");
+            let ok = format!("[{section}]\nindent_width = 3\n");
+            assert!(toml::from_str::<Config>(&ok).is_ok(), "{section}");
+        }
     }
 
     #[test]

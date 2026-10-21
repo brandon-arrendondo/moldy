@@ -10,6 +10,20 @@ fn every_language_preserves_uniform_crlf_and_supports_explicit_normalization() {
         ("simple.cpp", "int value = 1;\n"),
         ("simple.rs", "fn main() {\n    work();\n}\n"),
         ("simple.py", "value = 1\n"),
+        ("simple.jsonc", "{\n  \"a\": [\n    1\n  ] // note\n}\n"),
+        ("simple.yaml", "a:\n  - b # note\nrun: |\n  x\n\n  y\n"),
+        (
+            "simple.sh",
+            "if a; then\n  cat << EOF # note\nbody\nEOF\nfi\n",
+        ),
+        (
+            "CMakeLists.txt",
+            "if(A)\n    my_fn(\n      x\n    )\n    set(X 1) # c\nendif()\n",
+        ),
+        (
+            "simple.md",
+            "# Title\n\n- item\n  > quote\n\n```sh\nx\n```\n",
+        ),
     ] {
         let path = Path::new(name);
         let config = Config::default();

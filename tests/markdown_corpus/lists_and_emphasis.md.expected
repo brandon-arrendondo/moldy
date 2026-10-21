@@ -1,0 +1,23 @@
+1. one
+   para in item
+2. two
+   - nested
+     under nested
+3. ten
+
+- loose
+
+- list
+
+* sep
+
+- a
+
+  b
+
+- c
+- d
+  > quote in item
+
+Text *intra*word and foo*bar*baz, **_mix_**, _a **b** c_, _a_ and **b** and **_c_**.
+Some `code   spans` and <span  a="1">html</span> and <http://x.y> ok

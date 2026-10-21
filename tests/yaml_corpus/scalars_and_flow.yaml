@@ -1,0 +1,39 @@
+%YAML 1.2
+---
+long_list: [alpha, beta, gamma, delta, epsilon, zeta, eta, theta, iota, kappa, lambda]
+long_map: {alpha: 1, beta: 2, gamma: 3, delta: 4, epsilon: 5, zeta: 6, eta: 7, theta: 8}
+key: # comment after key
+    nested: 1
+seq: # comment after seq key
+- a   # a comment
+# own-line comment in seq
+- b
+plain: this is
+  a multi-line plain
+   scalar
+quoted: "a
+  b"
+tagged: !!str 123
+custom: !mytag
+  x: 1
+folded: >-
+    one
+    two
+
+    three
+item_props:
+  - &anchor
+    a: 1
+  - !tag scalar
+empty_seq_item:
+  -
+  - x
+"quoted key": 1
+'single key': 2
+dq_with_single: "it's"
+sq_with_backslash: 'C:\path'
+dq_escape: "tab\there"
+---
+# comment at doc start
+- top
+-   level

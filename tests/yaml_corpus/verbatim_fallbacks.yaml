@@ -1,0 +1,8 @@
+base: &base
+  x: 1
+merged:
+    <<: *base
+    ? complex key
+    : value
+flow_comment: [a, # c
+   b]

@@ -1,0 +1,4 @@
+# A `...` before a document without its own `---` becomes `---`.
+a: 1
+...
+b: 2

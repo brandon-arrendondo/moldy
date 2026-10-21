@@ -1,0 +1,13 @@
+# A scalar that is a whole document keeps its indentation.
+--- |
+  text  
+--- >
+  a
+  b
+--- !!str |
+  x
+--- &a |2
+    x
+# With no final newline, none is added to the last value.
+--- |
+  last

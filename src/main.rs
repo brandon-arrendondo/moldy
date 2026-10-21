@@ -1,5 +1,5 @@
 use clap::Parser;
-use lang_parsing_substrate::PathIgnore;
+use lang_parsing_substrate::{is_discoverable_file, PathIgnore};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -76,7 +76,18 @@ fn main() -> anyhow::Result<()> {
             _ => formatter::LineEndings::Preserve,
         };
         let formatted =
-            formatter::format_source_with_line_endings(path, &source, &config, ending_policy)?;
+            match formatter::format_source_with_line_endings(path, &source, &config, ending_policy)
+            {
+                Err(
+                    error @ (error::MoldyError::Syntax { .. }
+                    | error::MoldyError::Unverified { .. }
+                    | error::MoldyError::TooDeep { .. }),
+                ) => {
+                    eprintln!("warning: {}: {error}", path.display());
+                    source.clone()
+                }
+                result => result?,
+            };
 
         if cli.check {
             if source != formatted {
@@ -172,8 +183,7 @@ fn expand_paths(
                 if !ep.is_file() {
                     continue;
                 }
-                let Some(ext) = ep.extension() else { continue };
-                if !lang_parsing_substrate::is_source_extension(ext) {
+                if !is_discoverable_file(ep) {
                     continue;
                 }
                 if should_ignore(ep, &ignore) {
@@ -210,6 +220,15 @@ fn should_ignore(path: &Path, ignore: &PathIgnore) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_matches_file_names_and_skips_explicit_only() {
+        assert!(is_discoverable_file(Path::new("src/foo.c")));
+        assert!(is_discoverable_file(Path::new("cmake/CMakeLists.txt")));
+        assert!(!is_discoverable_file(Path::new("src/foo.h")));
+        assert!(!is_discoverable_file(Path::new("notes.txt")));
+        assert!(!is_discoverable_file(Path::new("Makefile")));
+    }
 
     #[test]
     fn should_ignore_matches_full_path_glob() {

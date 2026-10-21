@@ -6,13 +6,13 @@ Resolution order is `--preset`, an explicit `--config`, `moldy.toml` in the curr
 
 ## Built-in presets
 
-| Name | Target | Purpose |
-| --- | --- | --- |
-| `linux-kernel` | C/C++ | Kernel-style configuration. |
-| `riot` | C/C++ | RIOT-style configuration. |
-| `rustfmt-compat` | Rust | Width 100, width-based wrapping and short field lists. |
-| `pep8` | Python | Width 79. |
-| `black` | Python | Width 88. |
+| Name             | Target | Purpose                                                |
+| ---------------- | ------ | ------------------------------------------------------ |
+| `linux-kernel`   | C/C++  | Kernel-style configuration.                            |
+| `riot`           | C/C++  | RIOT-style configuration.                              |
+| `rustfmt-compat` | Rust   | Width 100, width-based wrapping and short field lists. |
+| `pep8`           | Python | Width 79.                                              |
+| `black`          | Python | Width 88.                                              |
 
 Presets select configuration, not a language: extensions still control dispatch. See [usage](usage.md) for compatibility limits.
 
@@ -81,9 +81,29 @@ collapse_field_lists = false
 
 [python]
 max_width = 79
+
+[json]
+indent_width = 2
+
+[yaml]
+indent_width = 2
+max_width = 80                   # flow collections break past this width
+
+[cmake]
+indent_width = 4
+max_width = 80
+
+[bash]
+indent_width = 2
 ```
 
 `nl_brace_else` belongs to `[newlines]`, not `[braces]`. Sections express formatter-specific policies; not every field has an effect in every language. For example, brace and preprocessor policies are primarily C/C++ concerns.
+
+The JSON, YAML, CMake and Bash formatters read only their own section and
+`[newlines].final_newline`; they always indent with spaces, and
+`indent_width` must be at least 1. Markdown has no
+section of its own: it formats front matter and `yaml` fences with the
+`[yaml]` settings. No preset targets these languages.
 
 ## Shared ignore configuration
 
