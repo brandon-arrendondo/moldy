@@ -99,6 +99,37 @@ indent_width = 2
 [rst]
 indent_width = 4                 # block quotes, definitions, directive bodies
 max_width = 88                   # paragraphs are rewrapped at this width
+heading_style = "normalize"      # "preserve": keep each title's adornment
+bullet_style = "normalize"       # "preserve": keep each list's bullet
+sentence_spacing = "normalize"   # "preserve": keep two spaces between sentences
+```
+
+The three `[rst]` style options default to docstrfmt's choice
+(`normalize`). `preserve` keeps the source's own convention, for a project
+whose documents follow one on purpose (see
+[ADR-0006](adr/0006-layout-not-authored-style.md)):
+
+- `heading_style = "preserve"` keeps each title's adornment character and
+  overline, and sets the adornment to the title's length (an overlined
+  title keeps its inset).
+- `bullet_style = "preserve"` keeps each bullet list's own character.
+- `sentence_spacing = "preserve"` keeps two spaces between sentences
+  where the source has two, and puts two where rewrapping joins a line
+  that ends a sentence to the next. A sentence ends in `.`, `?` or `!` and
+  the next starts with a capital letter, so `vs.` or `e.g.` before a
+  lowercase word keeps one space.
+
+For example, a Sphinx project with underline-only titles, `*` bullets, two
+spaces between sentences, 3-space directive bodies and text wrapped at 79
+columns could use:
+
+```toml
+[rst]
+indent_width = 3
+max_width = 79
+heading_style = "preserve"
+bullet_style = "preserve"
+sentence_spacing = "preserve"
 ```
 
 `nl_brace_else` belongs to `[newlines]`, not `[braces]`. Sections express formatter-specific policies; not every field has an effect in every language. For example, brace and preprocessor policies are primarily C/C++ concerns.

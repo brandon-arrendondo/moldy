@@ -6,7 +6,9 @@
 // hierarchy by level (`#` and `*` overlined, then `=`, `-`, `^`, ...); a
 // level is assigned to each adornment style in the order the styles first
 // appear, as docutils does. Bullets become `-` and enumerated lists are
-// renumbered from their first value with a `.` suffix; a list item is
+// renumbered from their first value with a `.` suffix; `heading_style`,
+// `bullet_style` and `sentence_spacing` can instead keep the source's
+// titles, bullets and two spaces between sentences; a list item is
 // followed by a blank line only when it holds more than one block. List
 // bodies are indented by their marker's width; definitions, block quotes,
 // field and footnote bodies, comments and directive bodies by
@@ -32,7 +34,7 @@
 //   - Field bodies and footnotes start on the name line only when their
 //     first block is a paragraph.
 
-use crate::config::{Config, RstConfig};
+use crate::config::{Config, RstConfig, RstStyle};
 use crate::error::MoldyError;
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Tree};
@@ -380,7 +382,9 @@ fn is_table_border(line: &str) -> bool {
 
 /// Greedy wrapping: the first line may be `first` columns wide and the
 /// others `rest`. A word wider than its line sits alone on it. A line that
-/// would be read as an adornment takes a word from its neighbour.
+/// would be read as an adornment takes a word from its neighbour. A word
+/// may end in a space, the second space after a sentence; it does not count
+/// at the end of a line.
 fn wrap(words: &[String], first: usize, rest: usize) -> Vec<String> {
     let mut lines: Vec<Vec<&str>> = Vec::new();
     let mut line: Vec<&str> = Vec::new();
@@ -388,7 +392,7 @@ fn wrap(words: &[String], first: usize, rest: usize) -> Vec<String> {
     for word in words {
         let budget = if lines.is_empty() { first } else { rest };
         let w = col(word);
-        if !line.is_empty() && len + 1 + w > budget {
+        if !line.is_empty() && len + 1 + col(word.trim_end()) > budget {
             lines.push(std::mem::take(&mut line));
             len = 0;
         }
@@ -418,7 +422,26 @@ fn wrap(words: &[String], first: usize, rest: usize) -> Vec<String> {
             i += 1;
         }
     }
-    lines.into_iter().map(|l| l.join(" ")).collect()
+    lines
+        .into_iter()
+        .map(|l| l.join(" ").trim_end().to_string())
+        .collect()
+}
+
+/// Whether `word` ends a sentence: `.`, `?` or `!`, before any closing
+/// quotes, brackets or inline markup.
+fn ends_sentence(word: &str) -> bool {
+    word.trim_end_matches([')', ']', '"', '\'', '\u{2019}', '\u{201d}', '*', '`', '_'])
+        .ends_with(['.', '?', '!'])
+}
+
+/// Whether `word` can start a sentence: its first letter or digit is a
+/// capital letter. This tells a sentence end from an abbreviation such as
+/// `vs.` or `e.g.`.
+fn starts_sentence(word: &str) -> bool {
+    word.chars()
+        .find(|c| c.is_alphanumeric())
+        .is_some_and(char::is_uppercase)
 }
 
 /// What a list continues from when it directly follows another list in
@@ -1135,6 +1158,14 @@ impl<'a> Rst<'a> {
     /// The words of `range`: split on ASCII whitespace, except after an
     /// escaping backslash and inside runs of spaces in inline literals.
     fn words(&self, start: usize, end: usize, node: Node) -> Vec<String> {
+        self.spaced_words(start, end, node, false)
+    }
+
+    /// `words`, where with `spaced` a word that ends a sentence before a
+    /// capitalized word ends in a space when the source has two spaces or a
+    /// line break between them: a line break gives no spacing to keep, and
+    /// two spaces there keep rewrapping stable.
+    fn spaced_words(&self, start: usize, end: usize, node: Node, spaced: bool) -> Vec<String> {
         let mut protected = Vec::new();
         let mut stack = vec![node];
         while let Some(n) = stack.pop() {
@@ -1171,6 +1202,11 @@ impl<'a> Rst<'a> {
                     sep = &run[1..];
                 }
                 if !sep.is_empty() && !word.is_empty() {
+                    let two = sep.contains('\n') || sep.len() > 1;
+                    let next = text[run_end..].split_ascii_whitespace().next();
+                    if spaced && two && ends_sentence(&word) && next.is_some_and(starts_sentence) {
+                        word.push(' ');
+                    }
                     words.push(std::mem::take(&mut word));
                 }
             }
@@ -1188,12 +1224,14 @@ impl<'a> Rst<'a> {
             .words(title.start_byte(), title.end_byte(), title)
             .join(" ");
         let style = self.section_style(node).expect("checked in assign_levels");
-        let level = self.levels[&style];
-        let (ch, over) = SECTION_STYLES[level - 1];
+        let ((ch, over), inset) = match self.cfg.heading_style {
+            RstStyle::Normalize => (SECTION_STYLES[self.levels[&style] - 1], 1),
+            RstStyle::Preserve => (style, title.start_position().column),
+        };
         let width = col(&text);
         if over {
-            let rule = ch.to_string().repeat(width + 2);
-            vec![rule.clone(), format!(" {text}"), rule]
+            let rule = ch.to_string().repeat(width + 2 * inset);
+            vec![rule.clone(), format!("{}{text}", " ".repeat(inset)), rule]
         } else {
             vec![text, ch.to_string().repeat(width.max(1))]
         }
@@ -1222,13 +1260,14 @@ impl<'a> Rst<'a> {
 
     /// A paragraph's words, and its literal block. `Para::` gives `Para:`,
     /// `Para ::` and `Para: ::` give `Para` and `Para:`.
-    fn paragraph_parts<'t>(&self, node: Node<'t>) -> (Vec<String>, Option<Node<'t>>) {
+    /// With `spaced`, sentence ends keep their spacing (`spaced_words`).
+    fn paragraph_parts<'t>(&self, node: Node<'t>, spaced: bool) -> (Vec<String>, Option<Node<'t>>) {
         let literal = child_of_kind(node, "literal_block");
         let marker = children(node)
             .into_iter()
             .find(|c| !c.is_named() && c.kind() == "::" && literal.is_some());
         let end = marker.map_or(node.end_byte(), |m| m.start_byte());
-        let mut words = self.words(node.start_byte(), end, node);
+        let mut words = self.spaced_words(node.start_byte(), end, node, spaced);
         if let (Some(m), Some(last)) = (marker, words.last_mut()) {
             let attached = m.start_byte() > node.start_byte()
                 && !self.src.as_bytes()[m.start_byte() - 1].is_ascii_whitespace();
@@ -1243,7 +1282,8 @@ impl<'a> Rst<'a> {
         if self.keep_paragraph(node) {
             return self.verbatim(node);
         }
-        let (words, literal) = self.paragraph_parts(node);
+        let spaced = self.cfg.sentence_spacing == RstStyle::Preserve;
+        let (words, literal) = self.paragraph_parts(node, spaced);
         let mut out = wrap(&words, first.unwrap_or(width).max(1), width);
         if let Some(lit) = literal {
             if !out.is_empty() {
@@ -1359,9 +1399,10 @@ impl<'a> Rst<'a> {
             if raw.iter().any(|m| !m.starts_with(src)) {
                 return Err(unverified(self.err_row(list)));
             }
-            let out = match seq.bullet {
-                Some((prev, out)) if prev == src => out,
-                Some((_, '-')) => '*',
+            let out = match (self.cfg.bullet_style, seq.bullet) {
+                (RstStyle::Preserve, _) => src,
+                (_, Some((prev, out))) if prev == src => out,
+                (_, Some((_, '-'))) => '*',
                 _ => '-',
             };
             seq.bullet = Some((src, out));
@@ -1510,7 +1551,7 @@ impl<'a> Rst<'a> {
             let split = b.kind() == "paragraph"
                 && !self.keep_paragraph(b)
                 && self.has_literal(b)
-                && !self.paragraph_parts(b).0.is_empty();
+                && !self.paragraph_parts(b, false).0.is_empty();
             count += if split { 2 } else { 1 };
         }
         count
@@ -1935,7 +1976,7 @@ impl<'a> Rst<'a> {
                 out.push_str(&format!("V {:?}", self.verbatim(node)));
             }
             "paragraph" => {
-                let (words, literal) = self.paragraph_parts(node);
+                let (words, literal) = self.paragraph_parts(node, false);
                 if !words.is_empty() {
                     out.push_str(&format!("P {}", words.join(" ")));
                 }

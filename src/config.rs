@@ -127,6 +127,15 @@ pub struct RstConfig {
     pub indent_width: u8,
     /// Column budget for rewrapped paragraph text.
     pub max_width: u32,
+    /// Section titles: one fixed style per level, or each title's own
+    /// adornment character and overline.
+    pub heading_style: RstStyle,
+    /// Bullet lists: `-` (or `*` after a separate list), or each list's own
+    /// bullet character.
+    pub bullet_style: RstStyle,
+    /// Spaces between sentences in rewrapped text: one, or two where the
+    /// source has two.
+    pub sentence_spacing: RstStyle,
 }
 
 impl Default for RstConfig {
@@ -134,8 +143,21 @@ impl Default for RstConfig {
         Self {
             indent_width: 4,
             max_width: 88,
+            heading_style: RstStyle::Normalize,
+            bullet_style: RstStyle::Normalize,
+            sentence_spacing: RstStyle::Normalize,
         }
     }
+}
+
+/// Whether a reStructuredText style choice follows docstrfmt or the source.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RstStyle {
+    /// docstrfmt's layout.
+    Normalize,
+    /// Keep the source's choice.
+    Preserve,
 }
 
 // ── JSON ─────────────────────────────────────────────────────────────────────
