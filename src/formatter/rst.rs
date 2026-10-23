@@ -874,8 +874,9 @@ impl<'a> Rst<'a> {
 
     /// Refuses input the grammar reads differently from docutils in a way
     /// that formatting would make worse: a "section" whose underline is too
-    /// short to be one, a paragraph docutils reads as a title, and a
-    /// paragraph ending in `::` whose literal block the grammar missed.
+    /// short to be one, a paragraph docutils reads as a title or ends at an
+    /// indented line, and a paragraph ending in `::` whose literal block the
+    /// grammar missed.
     fn check(&self, node: Node) -> Result<(), MoldyError> {
         let refuse = |n: Node| Err(unverified(self.err_row(n)));
         if node.is_named() && node.kind() != "document" {
@@ -917,7 +918,7 @@ impl<'a> Rst<'a> {
                     [over, _, under] => rule(over) && rule(under) && over.trim() == under.trim(),
                     _ => false,
                 };
-                if title {
+                if title || self.indents_past_second_line(node) {
                     return refuse(node);
                 }
             }
@@ -938,6 +939,30 @@ impl<'a> Rst<'a> {
             self.check(child)?;
         }
         Ok(())
+    }
+
+    /// Whether a paragraph has a line indented past its second line, before
+    /// any literal block: docutils ends the paragraph there and starts a
+    /// block quote, and the grammar runs the paragraph on, past any title
+    /// that follows. Tables and paragraphs that start like another block are
+    /// kept as written, and are not counted.
+    fn indents_past_second_line(&self, node: Node) -> bool {
+        let start = node.start_position().row;
+        let in_table = self.tables.iter().any(|(a, b)| *a <= start && start <= *b);
+        if in_table || self.table_or_block_start(node) {
+            return false;
+        }
+        let end = match child_of_kind(node, "literal_block") {
+            Some(literal) => literal.start_position().row.saturating_sub(1),
+            None if node.end_position().column == 0 => node.end_position().row.saturating_sub(1),
+            None => node.end_position().row,
+        };
+        if end < start + 2 {
+            return false;
+        }
+        let indent = |r: usize| leading_spaces(&expand_tabs(self.line(r)));
+        let second = indent(start + 1);
+        (start + 2..=end).any(|r| !self.line(r).trim().is_empty() && indent(r) > second)
     }
 
     /// Whether a node that starts its line has a later line indented less
@@ -1179,10 +1204,16 @@ impl<'a> Rst<'a> {
     fn keep_paragraph(&self, node: Node) -> bool {
         let lines = self.verbatim_lines(node);
         let blank = lines.iter().any(|l| l.trim().is_empty());
-        let marked = lines.iter().any(|l| is_table_border(l))
-            || lines.iter().skip(1).any(|l| is_adornment_line(l.trim()))
-            || lines.first().is_some_and(|l| starts_like_block(l));
+        let marked = self.table_or_block_start(node)
+            || lines.iter().skip(1).any(|l| is_adornment_line(l.trim()));
         (blank && !self.has_literal(node)) || marked
+    }
+
+    /// Whether a paragraph holds a table, or starts like another block.
+    fn table_or_block_start(&self, node: Node) -> bool {
+        let lines = self.verbatim_lines(node);
+        lines.iter().any(|l| is_table_border(l))
+            || lines.first().is_some_and(|l| starts_like_block(l))
     }
 
     fn has_literal(&self, node: Node) -> bool {
