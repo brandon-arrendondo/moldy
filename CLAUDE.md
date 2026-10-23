@@ -99,7 +99,10 @@ Fixtures are in `tests/<language>_corpus` and run from
 `tests/data_corpus_test.rs`. Reference formatters: JSON `json.dumps(indent=2)`,
 YAML Prettier, Markdown Prettier `--prose-wrap preserve`, CMake gersemi, Bash
 Prettier with prettier-plugin-sh, reStructuredText docstrfmt (layout only;
-its rewrites that change meaning are deviations). Each reference test names its known
+its rewrites that change meaning are deviations). What Moldy may change in prose is set by
+[ADR-0006](docs/adr/0006-layout-not-authored-style.md): layout is normalized,
+and an authored convention normalized by default (RST title adornments,
+bullets, sentence spacing) needs a `preserve` option. Each reference test names its known
 deviation fixtures. The default suite also re-parses CMake and Bash output and
 compares arguments, tokens and comments; keep those checks passing. When
 changing one of these formatters, run the ignored checks (see

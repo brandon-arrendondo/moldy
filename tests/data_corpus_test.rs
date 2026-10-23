@@ -30,7 +30,7 @@
 // every fixture except the known deviations. Run the ignored checks with
 // `cargo test --test data_corpus_test -- --ignored`.
 
-use moldy::config::Config;
+use moldy::config::{Config, RstStyle};
 use moldy::error::MoldyError;
 use moldy::formatter::format_source;
 use std::fs;
@@ -723,6 +723,69 @@ fn long_runs_outside_inline_text_are_formatted() {
 #[test]
 fn rst_corpus_matches_expected() {
     check_corpus("rst_corpus");
+}
+
+/// The `[rst]` style options keep each title's adornment, each list's
+/// bullet and two spaces between sentences, fixing only the adornment
+/// length; a sentence end at a line break gets two spaces when rewrapping
+/// joins the lines, and an abbreviation before a lowercase word does not end
+/// a sentence.
+#[test]
+fn rst_preserve_options_keep_source_style() {
+    let source = "\
+=======
+ Guide
+=======
+
+Setup
+-----
+
+Read this first.  It is short, compared with the
+other guides, vs.
+others.  Then
+continue.
+
+* one
+* two
+
+Details
+~~~~~~~~~
+
++ three
+";
+    let expected = "\
+=======
+ Guide
+=======
+
+Setup
+-----
+
+Read this first.  It is short, compared
+with the other guides, vs. others.  Then
+continue.
+
+* one
+* two
+
+Details
+~~~~~~~
+
++ three
+";
+    let mut config = Config::default();
+    config.rst.max_width = 40;
+    config.rst.heading_style = RstStyle::Preserve;
+    config.rst.bullet_style = RstStyle::Preserve;
+    config.rst.sentence_spacing = RstStyle::Preserve;
+    let path = Path::new("guide.rst");
+    let out = format_source(path, source, &config).unwrap();
+    assert_eq!(out, expected);
+    assert_eq!(format_source(path, &out, &config).unwrap(), out);
+    let normalized = format_source(path, source, &Config::default()).unwrap();
+    assert!(normalized.starts_with("#######\n Guide\n#######\n\n*******\n Setup\n"));
+    assert!(normalized.contains("first. It is short"));
+    assert!(normalized.contains("\n- one\n- two\n"));
 }
 
 /// Compares the docutils document trees of two reStructuredText files.
