@@ -10,6 +10,7 @@ mod markdown_emphasis;
 mod output;
 
 mod python;
+mod rst;
 mod rust;
 mod yaml;
 
@@ -52,6 +53,7 @@ pub fn format_source_with_line_endings(
         "markdown" => markdown::format(source, config),
         "cmake" => cmake::format(source, config),
         "bash" => bash::format(source, config),
+        "rst" => rst::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
     }?;
     Ok(line_endings::restore(source, &formatted, policy))

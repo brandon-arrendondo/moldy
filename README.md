@@ -1,6 +1,6 @@
 # moldy
 
-A tree-sitter based formatter for C, C++, Rust, Python, JSON, YAML, Markdown, CMake, and Bash. C/C++ formatting targets [funky](https://github.com/brandon-arrendondo/funky); the checked-in corpus verifies matching expected output. JSON follows `jq .`, YAML and Markdown follow Prettier, CMake follows gersemi, and Bash follows Prettier's shell plugin. Every language has its own corpus and idempotency tests, with compatibility limits described in the [usage guide](docs/usage.md).
+A tree-sitter based formatter for C, C++, Rust, Python, JSON, YAML, Markdown, CMake, Bash, and reStructuredText. C/C++ formatting targets [funky](https://github.com/brandon-arrendondo/funky); the checked-in corpus verifies matching expected output. JSON follows `jq .`, YAML and Markdown follow Prettier, CMake follows gersemi, Bash follows Prettier's shell plugin, and reStructuredText follows docstrfmt's layout. Every language has its own corpus and idempotency tests, with compatibility limits described in the [usage guide](docs/usage.md).
 
 ## Installation
 

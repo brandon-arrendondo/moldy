@@ -3,7 +3,7 @@
 @AGENTS.md
 
 Moldy is a tree-sitter based formatter for C, C++, Rust, Python, JSON,
-YAML, Markdown, CMake, and Bash. The C/C++ formatter targets funky's
+YAML, Markdown, CMake, Bash, and reStructuredText. The C/C++ formatter targets funky's
 formatting policy; corpus tests compare checked-in expected output. The
 other languages have separate fixtures and compatibility limits. See [documentation](README.md#documentation).
 
@@ -31,6 +31,7 @@ is no repository-local task database or `.todo-sqlite-cli` marker.
 | `src/formatter/markdown_check.rs`    | Independent CommonMark reading (pulldown-cmark) of input and output, for the Markdown check.                              |
 | `src/formatter/cmake.rs`             | CMake layout targeting gersemi; `cmake_signatures.rs` holds Moldy's own command signature table.                          |
 | `src/formatter/bash.rs`              | Bash layout targeting Prettier's shell plugin (shfmt printer).                                                            |
+| `src/formatter/rst.rs`               | reStructuredText layout targeting docstrfmt; finds tables in the source and checks its output's shape against the input.  |
 | `src/formatter/line_endings.rs`      | Maps source line endings onto formatted output.                                                                           |
 | `src/formatter/output.rs`            | Shared output operations.                                                                                                 |
 | `src/presets.rs`                     | Embedded preset lookup.                                                                                                   |
@@ -48,14 +49,17 @@ formatting: text in inactive preprocessor branches must be retained.
 
 The C, C++, Rust and Python formatters continue over syntax errors. Unknown
 C/C++ nodes emit source text; the entire file is not guaranteed to pass
-through unchanged. The JSON, YAML, Markdown, CMake and Bash formatters
+through unchanged. The JSON, YAML, Markdown, CMake, Bash and reStructuredText formatters
 return `MoldyError::Syntax` for any syntax error (`root.has_error()`); the
 CLI warns and leaves the file unchanged. They return `MoldyError::TooDeep`
 for nesting past `MAX_TREE_DEPTH` (and Markdown and YAML past
 `MAX_BLOCK_DEPTH`, estimated before parsing); keep both guards ahead of any
 recursion. Markdown also returns
 `MoldyError::Unverified` when its re-parsed output's shape differs from the
-input's; keep that check passing on real documents, not only the corpus. Where a grammar accepts input the
+input's; keep that check passing on real documents, not only the corpus.
+reStructuredText does the same, keeps what the grammar misreads as written
+or refuses it, and returns `MoldyError::TooDeep` past its nested-document
+limit. Where a grammar accepts input the
 language rejects or reads it differently (Markdown flanking and lazy lists,
 Bash `>#`), keep the affected text as written rather than reformat it.
 Verify
@@ -89,12 +93,13 @@ Python fixtures or emission, run the external reference check with installed
 cargo test --test python_corpus_test -- --ignored
 ```
 
-## JSON, YAML, Markdown, CMake and Bash
+## JSON, YAML, Markdown, CMake, Bash and reStructuredText
 
 Fixtures are in `tests/<language>_corpus` and run from
 `tests/data_corpus_test.rs`. Reference formatters: JSON `json.dumps(indent=2)`,
 YAML Prettier, Markdown Prettier `--prose-wrap preserve`, CMake gersemi, Bash
-Prettier with prettier-plugin-sh. Each reference test names its known
+Prettier with prettier-plugin-sh, reStructuredText docstrfmt (layout only;
+its rewrites that change meaning are deviations). Each reference test names its known
 deviation fixtures. The default suite also re-parses CMake and Bash output and
 compares arguments, tokens and comments; keep those checks passing. When
 changing one of these formatters, run the ignored checks (see
@@ -112,7 +117,7 @@ gersemi's signature table is MPL-2.0; do not copy it. Extend
 ## Substrate
 
 `lang-parsing-substrate` 0.12.0 owns registry metadata, grammar access, and glob
-matching. Disable default features and enable only the nine implemented
+matching. Disable default features and enable only the ten implemented
 formatters. `language_info_for_file` drives dispatch; `language_for_key`
 provides grammars, including `markdown_inline`; `language_for_file` serves tree
 dumping; `PathIgnore` serves path matching; `markdown::ContentMap` strips

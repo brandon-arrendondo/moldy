@@ -95,11 +95,15 @@ max_width = 80
 
 [bash]
 indent_width = 2
+
+[rst]
+indent_width = 4                 # block quotes, definitions, directive bodies
+max_width = 88                   # paragraphs are rewrapped at this width
 ```
 
 `nl_brace_else` belongs to `[newlines]`, not `[braces]`. Sections express formatter-specific policies; not every field has an effect in every language. For example, brace and preprocessor policies are primarily C/C++ concerns.
 
-The JSON, YAML, CMake and Bash formatters read only their own section and
+The JSON, YAML, CMake, Bash and reStructuredText formatters read only their own section and
 `[newlines].final_newline`; they always indent with spaces, and
 `indent_width` must be at least 1. Markdown has no
 section of its own: it formats front matter and `yaml` fences with the

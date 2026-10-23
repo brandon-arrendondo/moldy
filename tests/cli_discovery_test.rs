@@ -20,6 +20,7 @@ fn recursive_formatting_selects_only_implemented_languages() {
         ("script.sh", "if true;then echo hi;fi\n"),
         ("CMakeLists.txt", "project( x )\n"),
         ("module.cmake", "set( X 1 )\n"),
+        ("guide.rst", "Title\n=====\n\n* a  b\n"),
     ] {
         fs::write(dir.path().join(name), source).unwrap();
     }
@@ -61,6 +62,10 @@ fn recursive_formatting_selects_only_implemented_languages() {
     assert_eq!(
         fs::read_to_string(dir.path().join("script.sh")).unwrap(),
         "if true; then echo hi; fi\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("guide.rst")).unwrap(),
+        "#######\n Title\n#######\n\n- a b\n"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("unsupported.js")).unwrap(),

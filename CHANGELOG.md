@@ -5,6 +5,20 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Added
+
+- reStructuredText (`.rst`) formatting, following docstrfmt's layout:
+  paragraphs are rewrapped at 88 columns, section titles are written in one
+  fixed style per level, bullets become `-`, enumerated lists are renumbered,
+  and blocks are indented by 4 or by their list marker. Unlike docstrfmt,
+  Moldy keeps field names and order, target names, classifiers, footnote
+  bodies, tables, code and the content of directives it does not know as
+  written. A file with a syntax error, one the grammar reads differently
+  from docutils, or one Moldy cannot confirm keeps its structure is left
+  unchanged and reported as not formatted. Recursive formatting (`-r`) now selects `.rst`
+  files.
+- An `[rst]` configuration section for indentation and line width.
+
 ## [0.5.1] - 2026-10-25
 
 ### Fixed

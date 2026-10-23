@@ -1,0 +1,26 @@
+A block quote holding a list, which the grammar reads as a paragraph:
+
+    - first item
+    - second item
+
+A list item with an indented continuation, read as a definition list:
+
+    - an item
+      continued
+
+- A list item with a literal block::
+
+      code
+
+  and text after it in the same item.
+
+.. c:function:: int f(int a, \
+                      int b)
+
+   The grammar ends the directive at its arguments; its body stays as
+   written.
+
+..
+   function:: commented_out()
+
+   Commented out.

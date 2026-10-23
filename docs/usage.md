@@ -46,17 +46,18 @@ library's `format_source_with_line_endings` API. See
 
 ## Language detection
 
-| Language | Recursive and explicit                | Explicit only |
-| -------- | ------------------------------------- | ------------- |
-| C        | `.c`                                  | `.h`          |
-| C++      | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx` | —             |
-| Rust     | `.rs`                                 | —             |
-| Python   | `.py`                                 | —             |
-| JSON     | `.json`, `.jsonc`                     | —             |
-| YAML     | `.yaml`, `.yml`                       | —             |
-| Markdown | `.md`, `.markdown`                    | —             |
-| CMake    | `CMakeLists.txt`, `.cmake`            | —             |
-| Bash     | `.sh`, `.bash`                        | —             |
+| Language         | Recursive and explicit                | Explicit only |
+| ---------------- | ------------------------------------- | ------------- |
+| C                | `.c`                                  | `.h`          |
+| C++              | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx` | —             |
+| Rust             | `.rs`                                 | —             |
+| Python           | `.py`                                 | —             |
+| JSON             | `.json`, `.jsonc`                     | —             |
+| YAML             | `.yaml`, `.yml`                       | —             |
+| Markdown         | `.md`, `.markdown`                    | —             |
+| CMake            | `CMakeLists.txt`, `.cmake`            | —             |
+| Bash             | `.sh`, `.bash`                        | —             |
+| reStructuredText | `.rst`                                | —             |
 
 Extensions and file names come from the compiled substrate registry. Extensions match in any case, so `A.C` and `B.H`, as Windows-built source trees often name them, are C and `.CPP` is C++; GCC's convention that `.C` is C++ is not followed. File names such as `CMakeLists.txt` match as written. A `.h` path selects C; Moldy does not use the substrate's content-based C++ header detection. Use a C++ extension for C++ headers. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
 
@@ -117,7 +118,7 @@ initializer-directive fix did not cover those CRLF recovery cases.
 
 UTF-8 BOMs are removed from BOM + CRLF files. See ADR-0005 for these limits.
 
-### JSON, YAML, Markdown, CMake and Bash
+### JSON, YAML, Markdown, CMake, Bash and reStructuredText
 
 Each of these formatters leaves a file with any syntax error unchanged and
 declines it: Moldy names it and the line of the first error, for example
@@ -135,13 +136,15 @@ declined the same way when its paragraphs, headings and table
 cells hold very long `*` and `_` runs (one run of about 1,000, or many
 shorter ones) or very many backtick runs in all, or when its lines, in code blocks too, hold very long runs
 of `` ` `` or `~`, or of `*` or `_` with blanks (a few thousand on a line,
-or many shorter ones).
+or many shorter ones). A reStructuredText file is too deep past about 240
+levels of indentation or 32 directives nested in one another, and one
+nested past the grammar's 99 indentation levels is a syntax error.
 Without `--check` or `--in-place`, the file's text is printed unchanged.
 Each targets an
 external formatter's default output, checked against fixtures in
 `tests/<language>_corpus`; matching those fixtures is not a guarantee of
 identical output on every file. Long scalars, prose and comments are never
-re-wrapped.
+re-wrapped, except reStructuredText paragraphs.
 
 **JSON** expands every non-empty object and array to one member per line,
 the layout of `jq .` and Python's `json.dumps(indent=2)`. Keys, strings and
@@ -274,3 +277,39 @@ it, or when it reads a reserved word such as `fi`, `then`, `{`, `for` or
 `function` as the name of a command at the start of its line, which bash
 rejects (as after a `[ ]` test it runs on past its `]`, or empty
 assignments it runs on past a comment).
+
+**reStructuredText** follows docstrfmt's layout without its rewrites that
+change meaning. Paragraphs are rewrapped at 88 columns, with runs of
+spaces collapsed to one (except inside inline literals) and a word
+longer than the line on a line of its own; a line is never left made only
+of punctuation, which would read as a title. Section titles are written in
+one style per level, assigned in the order the input's styles first
+appear: `#` and `*` with overlines and the title padded by a space, then
+`=`, `-`, `^`, `"`, `'`, `~`, `+`, `.`, `` ` ``, `_` and `:` underlines; a
+file whose levels skip one, or go past 13, is left unchanged and
+declined. Bullets become `-` (`*` for a list right after a separate list),
+enumerated lists are renumbered from their first value with a `.`, and a
+list item is followed by a blank line only when it holds more than one
+block. List bodies are indented by their marker's width; definitions,
+field and footnote bodies, block quotes, comments and directive bodies by
+`indent_width` (4). `Para::` becomes `Para:` and a separate `::`
+paragraph. Admonitions, `seealso`, `topic`, `sidebar`, `figure`,
+`list-table` and the version directives have their bodies formatted as
+reStructuredText; text on an admonition's first line starts its body.
+Other directives keep their content as written, with their options
+normalized, and Python code is not reformatted.
+
+Unlike docstrfmt, Moldy keeps field names and order, target names,
+classifiers, footnote bodies, `\ ` escapes, admonition options and the
+spaces inside inline literals, and keeps simple and grid tables, literal
+blocks, doctests, option lists and line blocks as written. The grammar
+does not parse tables and reads some input differently from docutils
+(lists inside block quotes, a list item that continues after its literal
+block, a directive whose arguments continue on the next line); that text
+is kept as written, re-indented as a unit. A file is left unchanged and
+declined when the grammar's reading would make formatting change its
+meaning, such as a title it reads as a paragraph, a paragraph it runs on
+past a more indented line (docutils ends the paragraph there), or a
+literal block it misses, when a line's indentation holds a non-breaking space (which
+docutils does not count as indentation), or when the formatted text's
+structure differs from the input's.
