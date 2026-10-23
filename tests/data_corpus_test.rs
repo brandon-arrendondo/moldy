@@ -23,8 +23,11 @@
 // before and after (when bash 5.2 or later is installed), and
 // `bash_corpus_matches_prettier` (ignored) runs `prettier` with the
 // shell plugin named by `PRETTIER_PLUGIN_SH` (a path to prettier-plugin-sh,
-// which Prettier resolves only relative to where it is installed). Run the
-// ignored checks with
+// which Prettier resolves only relative to where it is installed).
+// `rst_corpus_keeps_meaning` (ignored) reads each reStructuredText input and
+// expected file with python3's docutils and compares the document trees, and
+// `rst_corpus_matches_docstrfmt` (ignored) runs `docstrfmt` from PATH over
+// every fixture except the known deviations. Run the ignored checks with
 // `cargo test --test data_corpus_test -- --ignored`.
 
 use moldy::config::Config;
@@ -623,6 +626,19 @@ fn deep_nesting_is_left_unchanged() {
             "deep.sh",
             format!("echo {}x{}\n", "$(".repeat(1000), ")".repeat(1000)),
         ),
+        (
+            "deep.rst",
+            (0..300)
+                .map(|i| format!("{}- a\n\n", "  ".repeat(i)))
+                .collect(),
+        ),
+        (
+            "deep.rst",
+            (0..40)
+                .map(|i| format!("{}.. note::\n\n", "    ".repeat(i)))
+                .collect::<String>()
+                + "x\n",
+        ),
     ];
     for (name, source) in &deep {
         match format_source(Path::new(name), source, &Config::default()) {
@@ -647,6 +663,20 @@ fn deep_nesting_is_left_unchanged() {
         (
             "deep.sh",
             format!("{}x{}\n", "{ ".repeat(100), "; }".repeat(100)),
+        ),
+        (
+            "deep.rst",
+            (0..45)
+                .map(|i| format!("{}- a\n\n", "  ".repeat(i)))
+                .collect(),
+        ),
+        (
+            "deep.rst",
+            (0..20)
+                .map(|i| format!("{}.. note::\n\n", "    ".repeat(i)))
+                .collect::<String>()
+                + &"    ".repeat(20)
+                + "x\n",
         ),
     ];
     for (name, source) in &within {
@@ -688,4 +718,134 @@ fn long_runs_outside_inline_text_are_formatted() {
     let rules = format!("a\n\n{}", format!("{}\n\n", "*".repeat(80)).repeat(200));
     let out = format_source(Path::new("runs.md"), &rules, &Config::default()).unwrap();
     assert_eq!(out, format!("a\n{}", "\n---\n".repeat(200)));
+}
+
+#[test]
+fn rst_corpus_matches_expected() {
+    check_corpus("rst_corpus");
+}
+
+/// Compares the docutils document trees of two reStructuredText files.
+/// Unknown directives and roles get generic handlers that keep their text,
+/// and the Sphinx directives whose body moldy formats as reStructuredText
+/// are parsed as such. Bullet characters, enumerator punctuation, ids and
+/// docutils messages are not compared, and runs of whitespace in ordinary
+/// text count as one space.
+const RST_DOCTREE_CHECK: &str = r##"
+import sys
+from collections import defaultdict
+import docutils.core, docutils.statemachine
+from docutils import nodes
+from docutils.parsers.rst import Directive, directives, roles
+RST_BODY = {"seealso"}
+TITLED_BODY = {"versionadded", "versionchanged", "versionremoved", "deprecated"}
+class Generic(Directive):
+    has_content = True
+    optional_arguments = 1
+    final_argument_whitespace = True
+    option_spec = defaultdict(lambda: directives.unchanged)
+    def run(self):
+        node = nodes.container(classes=["generic", self.name])
+        node["options"] = repr(sorted((k, " ".join(str(v or "").split())) for k, v in self.options.items()))
+        if self.name in TITLED_BODY:
+            node["arguments"] = " ".join(" ".join(self.arguments).split())
+            self.state.nested_parse(self.content, self.content_offset, node)
+        elif self.name in RST_BODY:
+            text = "\n".join(([" ".join(self.arguments)] if self.arguments else []) + list(self.content))
+            self.state.nested_parse(docutils.statemachine.StringList(text.splitlines()), self.content_offset, node)
+        else:
+            node["arguments"] = " ".join(" ".join(self.arguments).split())
+            text = "\n".join(self.content)
+            node += nodes.literal_block(text, text)
+        return [node]
+found_directive = directives.directive
+directives.directive = lambda name, lang, doc: (found_directive(name, lang, doc)[0] or Generic, [])
+found_role = roles.role
+def generic_role(name, rawtext, text, lineno, inliner, options=None, content=None):
+    return [nodes.literal(rawtext, " ".join(text.split()), classes=["role", name])], []
+roles.role = lambda name, lang, lineno, rep: (found_role(name, lang, lineno, rep)[0] or generic_role, [])
+DROP = {"ids", "backrefs", "dupnames", "source", "line", "bullet", "prefix", "suffix", "xml:space"}
+VERBATIM = (nodes.literal_block, nodes.doctest_block, nodes.raw, nodes.comment)
+def flatten(node, out, verbatim=False):
+    if isinstance(node, (nodes.system_message, nodes.problematic)):
+        return
+    if isinstance(node, nodes.Text):
+        t = str(node) if verbatim else " ".join(str(node).split())
+        if out and out[-1][0] == "#text" and not verbatim:
+            out[-1] = ("#text", " ".join((out[-1][1] + " " + t).split()))
+        elif t:
+            out.append(("#text", t))
+        return
+    attrs = sorted((k, repr(" ".join(v.split()) if k == "title" else v)) for k, v in node.attributes.items() if k not in DROP and v not in ([], "", None))
+    out.append((node.tagname, attrs))
+    for child in node.children:
+        flatten(child, out, verbatim or isinstance(node, VERBATIM))
+    out.append(("/" + node.tagname,))
+def tree(path):
+    settings = {"report_level": 5, "halt_level": 5, "warning_stream": False, "file_insertion_enabled": False}
+    out = []
+    flatten(docutils.core.publish_doctree(open(path, encoding="utf-8").read(), settings_overrides=settings), out)
+    return out
+a, b = tree(sys.argv[1]), tree(sys.argv[2])
+i = next((k for k, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+assert a == b, f"document trees differ: {a[i:i + 3]} != {b[i:i + 3]}"
+"##;
+
+#[test]
+#[ignore = "requires python3 with docutils"]
+fn rst_corpus_keeps_meaning() {
+    for input in corpus_inputs("rst_corpus") {
+        let output = Command::new("python3")
+            .arg("-c")
+            .arg(RST_DOCTREE_CHECK)
+            .arg(&input)
+            .arg(expected_path(&input))
+            .output()
+            .expect("python3 not found");
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            input.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+/// reStructuredText fixtures whose expected output knowingly differs from
+/// docstrfmt's. docstrfmt refuses attributions, option lists, empty fields
+/// and a list of separate lists; it formats Python code with black, drops
+/// admonition options, sorts and lowercases targets, deletes `\ ` escapes,
+/// collapses spaces in inline literals, and re-renders tables, all of which
+/// moldy keeps. The kept-as-written fixture keeps input the grammar
+/// misreads, and refused and malformed input is returned unchanged.
+const RST_DOCSTRFMT_DEVIATIONS: &[&str] = &[
+    "blocks.rst",
+    "explicit_markup.rst",
+    "kept_as_written.rst",
+    "lists.rst",
+    "sections_and_paragraphs.rst",
+    "tables.rst",
+];
+
+#[test]
+#[ignore = "requires docstrfmt on PATH"]
+fn rst_corpus_matches_docstrfmt() {
+    for input in corpus_inputs("rst_corpus") {
+        if RST_DOCSTRFMT_DEVIATIONS.contains(&file_name(&input)) || is_unparsed_fixture(&input) {
+            continue;
+        }
+        let output = Command::new("docstrfmt")
+            .arg("-")
+            .stdin(fs::File::open(&input).unwrap())
+            .output()
+            .expect("docstrfmt not found");
+        assert!(output.status.success(), "{:?}", output);
+        let expected = fs::read_to_string(expected_path(&input)).unwrap();
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            expected,
+            "{} differs from docstrfmt",
+            input.display()
+        );
+    }
 }

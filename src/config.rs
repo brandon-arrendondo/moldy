@@ -38,6 +38,8 @@ pub struct Config {
     pub cmake: CmakeConfig,
     /// Bash-specific formatting knobs.
     pub bash: BashConfig,
+    /// reStructuredText-specific formatting knobs.
+    pub rst: RstConfig,
 }
 
 /// Rejects an indent width of 0, which would flatten nesting and, in YAML,
@@ -108,6 +110,30 @@ impl Default for YamlConfig {
         Self {
             indent_width: 2,
             max_width: 80,
+        }
+    }
+}
+
+// ── reStructuredText ─────────────────────────────────────────────────────────
+
+/// Knobs specific to `src/formatter/rst.rs`. The default matches docstrfmt.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RstConfig {
+    /// Spaces per nesting level for block quotes, definitions, field-body
+    /// continuations and directive bodies. List bodies are indented by
+    /// their marker's width instead.
+    #[serde(deserialize_with = "positive_width")]
+    pub indent_width: u8,
+    /// Column budget for rewrapped paragraph text.
+    pub max_width: u32,
+}
+
+impl Default for RstConfig {
+    fn default() -> Self {
+        Self {
+            indent_width: 4,
+            max_width: 88,
         }
     }
 }

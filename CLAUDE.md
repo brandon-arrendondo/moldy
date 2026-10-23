@@ -3,7 +3,7 @@
 @AGENTS.md
 
 Moldy is a tree-sitter based formatter for C, C++, Rust, Python, JSON,
-YAML, Markdown, CMake, and Bash. The C/C++ formatter targets funky's
+YAML, Markdown, CMake, Bash, and reStructuredText. The C/C++ formatter targets funky's
 formatting policy; corpus tests compare checked-in expected output. The
 other languages have separate fixtures and compatibility limits. See [documentation](README.md#documentation).
 
@@ -33,6 +33,7 @@ is no repository-local task database or `.todo-sqlite-cli` marker.
 | `src/formatter/bash.rs`              | Bash layout targeting Prettier's shell plugin (shfmt printer).                                                            |
 | `src/formatter/verify.rs`            | Token check for C, C++, Rust and Python: re-parses output, compares tokens, comments and line structure.                  |
 | `src/formatter/c_lex.rs`             | C/C++ maximal-munch lexer, independent of tree-sitter: keeps the emitter from joining tokens; re-reads output in the check. |
+| `src/formatter/rst.rs`               | reStructuredText layout targeting docstrfmt; finds tables in the source and checks its output's shape against the input.  |
 | `src/formatter/line_endings.rs`      | Maps source line endings onto formatted output.                                                                           |
 | `src/formatter/output.rs`            | Shared output operations.                                                                                                 |
 | `src/presets.rs`                     | Embedded preset lookup.                                                                                                   |
@@ -60,14 +61,17 @@ also re-reads both texts with `c_lex.rs`, as a C and a C++ compiler read them, s
 tree-sitter can read joined tokens (`:::`, an unterminated `/*`) as the
 input's; the emitter never writes two tokens together that `c_lex::joins`. Do not widen those
 edits to make a check pass; keep it passing on real code, not only the
-corpus. The JSON, YAML, Markdown, CMake and Bash formatters
+corpus. The JSON, YAML, Markdown, CMake, Bash and reStructuredText formatters
 return `MoldyError::Syntax` for any syntax error (`root.has_error()`); the
 CLI warns and leaves the file unchanged. They return `MoldyError::TooDeep`
 for nesting past `MAX_TREE_DEPTH` (and Markdown and YAML past
 `MAX_BLOCK_DEPTH`, estimated before parsing); keep both guards ahead of any
 recursion. Markdown also returns
 `MoldyError::Unverified` when its re-parsed output's shape differs from the
-input's; keep that check passing on real documents, not only the corpus. Where a grammar accepts input the
+input's; keep that check passing on real documents, not only the corpus.
+reStructuredText does the same, keeps what the grammar misreads as written
+or refuses it, and returns `MoldyError::TooDeep` past its nested-document
+limit. Where a grammar accepts input the
 language rejects or reads it differently (Markdown flanking and lazy lists,
 Bash `>#`), keep the affected text as written rather than reformat it.
 Verify
@@ -108,12 +112,13 @@ Python fixtures or emission, run the external reference check with installed
 cargo test --test python_corpus_test -- --ignored
 ```
 
-## JSON, YAML, Markdown, CMake and Bash
+## JSON, YAML, Markdown, CMake, Bash and reStructuredText
 
 Fixtures are in `tests/<language>_corpus` and run from
 `tests/data_corpus_test.rs`. Reference formatters: JSON `json.dumps(indent=2)`,
 YAML Prettier, Markdown Prettier `--prose-wrap preserve`, CMake gersemi, Bash
-Prettier with prettier-plugin-sh. Each reference test names its known
+Prettier with prettier-plugin-sh, reStructuredText docstrfmt (layout only;
+its rewrites that change meaning are deviations). Each reference test names its known
 deviation fixtures. The default suite also re-parses CMake and Bash output and
 compares arguments, tokens and comments; keep those checks passing. When
 changing one of these formatters, run the ignored checks (see
@@ -131,7 +136,7 @@ gersemi's signature table is MPL-2.0; do not copy it. Extend
 ## Substrate
 
 `lang-parsing-substrate` 0.14.0 owns registry metadata, grammar access, and glob
-matching. Disable default features and enable only the nine implemented
+matching. Disable default features and enable only the ten implemented
 formatters. `language_info_for_file` drives dispatch; `language_for_key`
 provides grammars, including `markdown_inline`; `language_for_file` serves tree
 dumping; `PathIgnore::with_extension_case_folded` serves path matching,

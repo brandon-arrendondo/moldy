@@ -1,0 +1,79 @@
+Guide
+=====
+
+Introduction
+------------
+
+This paragraph is long enough that it has to be rewrapped at eighty-eight columns, and its
+short
+lines are joined.  Double spaces after a sentence collapse.
+
+* one
+* two
+  continued
+
+  second paragraph
+* three
+
+  + nested a
+  + nested b
+
+* four
+
+#. auto one
+#. auto two
+
+(a) alpha
+(b) beta
+
+term 1
+  Definition one.
+term 2
+   Definition two.
+
+   Second paragraph.
+
+:Author: Someone
+:Version:
+    1.0
+
+A paragraph::
+
+    literal  block
+      kept as written
+
+Intro:
+
+  Quoted text.
+
+.. a comment
+
+.. multi-line comment
+   continues
+
+.. note:: Text on the first line
+   continues here.
+
+.. figure:: picture.png
+   :alt: A picture
+
+   The caption is rewrapped like any other paragraph because the figure body is reStructuredText.
+
+.. list-table:: Title
+   :header-rows: 1
+
+   * - Key
+     - Value
+   * - a
+     - b
+
+.. mydirective:: argument
+   :option:   value
+
+   Content  kept   as written.
+
+.. [1] A footnote that is long enough to wrap onto a second line when it is formatted by moldy.
+
+**********
+
+Text after a transition.

@@ -1,0 +1,49 @@
+A paragraph:
+
+::
+
+    literal  block
+      kept as written
+
+A spaced marker
+
+::
+
+    literal
+
+A colon:
+
+::
+
+    literal
+
+::
+
+    standalone
+
+>>> 1 + 1
+2
+
+| line one
+|    indented line
+
+Intro:
+
+    Quoted text.
+
+    -- Attribution
+
+-a            Output all.
+--long        A long option.
+
+.. a comment
+
+..
+    multi-line comment
+    continues
+
+..
+
+----
+
+Text after a transition.

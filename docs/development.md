@@ -41,15 +41,16 @@ cargo test --test python_corpus_test -- --ignored
 
 Run those reference checks when changing Python emission or fixtures. They validate the fixture expectations, not arbitrary project output.
 
-JSON, YAML, Markdown, CMake and Bash fixtures live in `tests/<language>_corpus` and run from `tests/data_corpus_test.rs`. The default suite checks expected output and idempotency, and re-parses CMake and Bash output to confirm that every command argument, shell token and comment is kept. Its ignored checks compare fixtures with the reference formatters and confirm meaning is preserved:
+JSON, YAML, Markdown, CMake, Bash and reStructuredText fixtures live in `tests/<language>_corpus` and run from `tests/data_corpus_test.rs`. The default suite checks expected output and idempotency, and re-parses CMake and Bash output to confirm that every command argument, shell token and comment is kept. Its ignored checks compare fixtures with the reference formatters and confirm meaning is preserved:
 
-| Language | Ignored check needs                                                                                   |
-| -------- | ----------------------------------------------------------------------------------------------------- |
-| JSON     | `python3` (layout of `json.dumps(indent=2)`).                                                         |
-| YAML     | `prettier` on `PATH`; `python3` with PyYAML (parse events).                                           |
-| Markdown | `prettier` on `PATH`; `python3` with markdown-it-py (rendered HTML).                                  |
-| CMake    | `gersemi` on `PATH`.                                                                                  |
-| Bash     | `prettier` on `PATH` and `PRETTIER_PLUGIN_SH` set to the path of prettier-plugin-sh's `lib/index.js`. |
+| Language         | Ignored check needs                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| JSON             | `python3` (layout of `json.dumps(indent=2)`).                                                         |
+| YAML             | `prettier` on `PATH`; `python3` with PyYAML (parse events).                                           |
+| Markdown         | `prettier` on `PATH`; `python3` with markdown-it-py (rendered HTML).                                  |
+| CMake            | `gersemi` on `PATH`.                                                                                  |
+| Bash             | `prettier` on `PATH` and `PRETTIER_PLUGIN_SH` set to the path of prettier-plugin-sh's `lib/index.js`. |
+| reStructuredText | `docstrfmt` on `PATH`; `python3` with docutils (document trees).                                      |
 
 ```sh
 PRETTIER_PLUGIN_SH=/path/to/node_modules/prettier-plugin-sh/lib/index.js \
