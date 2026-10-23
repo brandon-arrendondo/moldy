@@ -10,6 +10,8 @@ moldy [OPTIONS] <FILES>...
 | `--check`                | Write no formatted output; report changed filenames on stderr and exit 1 if any would change. |
 | `--line-endings <STYLE>` | Explicitly normalize output endings; default preserves mapped source endings.                 |
 | `-r`, `--recursive`      | Walk directories, following symbolic links.                                                   |
+| `--allow-empty`          | Accept a run that selects no files: report it on stderr and exit 0 instead of 3.              |
+| `--completion-report <FILE>` | Write each selected file's outcome and the counts to `FILE` as JSON, even when the run fails. |
 | `-c`, `--config <FILE>`  | Load this TOML file instead of checking for `moldy.toml` in the current directory.            |
 | `--preset <NAME>`        | Use a bundled preset instead of a config file; conflicts with `--config`.                     |
 | `--dump-tree`            | Print each file's tree-sitter CST; this debug option is hidden from help.                     |
@@ -58,13 +60,41 @@ library's `format_source_with_line_endings` API. See
 
 Extensions and file names come from the compiled substrate registry. Extensions match in any case, so `A.C` and `B.H`, as Windows-built source trees often name them, are C and `.CPP` is C++; GCC's convention that `.C` is C++ is not followed. File names such as `CMakeLists.txt` match as written. A `.h` path selects C; Moldy does not use the substrate's content-based C++ header detection. Use a C++ extension for C++ headers. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
 
-Directories require `--recursive`; otherwise Moldy warns and skips them. Recursive discovery uses the substrate's `is_discoverable_file`, which selects the extensions and file names above and skips `.h`. Explicit file paths are attempted even if their extension is unsupported and then fail at dispatch. Ignore patterns apply to both explicit paths and recursive files; see [configuration](configuration.md).
+Directories require `--recursive`; a directory named without it stops the run before any file is touched, with exit 2. So does a named path that does not exist. Recursive discovery uses the substrate's `is_discoverable_file`, which selects the extensions and file names above and skips `.h`. A directory the walk cannot read, or a dangling symbolic link it would have selected, is reported as not formatted; a symbolic link loop is not, since its target is walked anyway. Explicit file paths are attempted even if their extension is unsupported, and are then reported as not formatted (`unsupported language`). Ignore patterns apply to both explicit paths and recursive files, before any file is read; an ignored file is not selected, even when named. See [configuration](configuration.md).
 
 ## Output and exits
 
-Inputs must be UTF-8 files. Stdin is not implemented; `-` is currently treated as a filesystem path. File errors, unsupported languages, malformed configuration, and incompatible flags terminate processing. An explicitly supplied unsupported file reports its path, for example `unsupported language for: a.js`. Files already written with `--in-place` are not rolled back if a later file fails.
+Inputs must be UTF-8 files. Stdin is not implemented; `-` is currently treated as a filesystem path.
 
-Successful execution returns 0, including a scan where no files were selected. `--check` returns 1 if any file would change. Runtime errors return 1; clap argument errors return 2. A check that selects no files does not establish that the project is formatted.
+Each selected file ends one of four ways: changed (it would be, or was, reformatted), unchanged, declined (the formatter left it unchanged on purpose; see [below](#json-yaml-markdown-cmake-and-bash)), or failed (it could not be read, is not UTF-8, is in an unsupported language, or could not be written). A file that declines or fails does not stop the run: Moldy names it on stderr, for example `a.yaml: not formatted (YAML syntax error at line 3)`, and goes on to the next file. `--check` names each file that would change (`a.c: would reformat`) and `--in-place` each file it rewrote (`a.c: reformatted`).
+
+Under `--check` and `--in-place`, a summary always ends stderr, for example `moldy: 12 files: 3 would be reformatted, 8 unchanged, 1 not formatted`. A run to stdout prints it only when the run is incomplete, so a single file piped through Moldy adds nothing to stderr. An incomplete run then says how many selected files were not formatted. Under `--in-place` it also says that the files it already reformatted stay rewritten: nothing is rolled back.
+
+| Status | Meaning |
+| ------ | ------- |
+| 0 | Completed: every selected file was formatted, or `--check` found nothing to change. Also an empty selection with `--allow-empty`. |
+| 1 | `--check` completed and found files that would be reformatted. |
+| 2 | The run could not start: invalid arguments, an unknown preset, a malformed `moldy.toml`, `--config` file or `toolchain.toml`, a named path that does not exist, or a directory named without `-r`. No file is touched. |
+| 3 | Incomplete: a selected file declined or failed, or no file was selected without `--allow-empty`. It outranks 1, and also covers a `--completion-report` that cannot be written. |
+
+A run that selects no files is incomplete, because a check of nothing does not establish that a project is formatted. Pass `--allow-empty` when an empty selection is expected.
+
+`--completion-report <FILE>` writes the outcome of every selected file as JSON, whatever the mode, and writes it even when the run fails, so an `--in-place` run shows which files it did rewrite:
+
+```json
+{
+  "complete": false,
+  "mode": "in-place",
+  "files": { "selected": 3, "changed": 1, "unchanged": 1, "declined": 1, "failed": 0 },
+  "results": [
+    { "file": "a.c", "status": "changed" },
+    { "file": "b.yaml", "status": "declined", "reason": "YAML syntax error at line 3" },
+    { "file": "c.c", "status": "unchanged" }
+  ]
+}
+```
+
+`mode` is `check`, `in-place` or `stdout`, and `complete` is `false` exactly when the run exits 3. In stdout mode, `changed` means the formatted output differs from the file. `results` is sorted by file, and `reason` appears only for a declined or failed file.
 
 `--dump-tree` takes precedence over formatting inside the file loop, including when paired with `--check` or `--in-place`.
 
@@ -90,19 +120,18 @@ UTF-8 BOMs are removed from BOM + CRLF files. See ADR-0005 for these limits.
 ### JSON, YAML, Markdown, CMake and Bash
 
 Each of these formatters leaves a file with any syntax error unchanged and
-prints a warning naming it and the line of the first error, for example
-`warning: a.yaml: YAML syntax error at line 3; file left unchanged`. The
-run continues, and the warning does not change the exit status: `--check`
-still exits 0 when no other file would change. The pre-commit hook shows
-these warnings even when it passes. A file nested deeper than Moldy
-handles is left unchanged the same way, with a warning that it is nested
+declines it: Moldy names it and the line of the first error, for example
+`a.yaml: not formatted (YAML syntax error at line 3)`. The run continues
+with the other files, but it is incomplete and exits 3, in `--check` and
+`--in-place` alike: a file Moldy did not format has not been checked. A
+file nested deeper than Moldy handles is declined the same way, as nested
 too deeply. The limit depends on the construct: about 60 levels of YAML
 block indentation at two spaces, 100 levels of parentheses in a CMake
 argument, about 200 levels of JSON objects or CMake blocks, and a few
 hundred levels of brackets, quotes, lists or blocks elsewhere. Markdown
 emphasis nested more than about 240 deep, and inline text with
 thousands of backticks, is kept as written. A Markdown file is left
-unchanged with the same warning when its paragraphs, headings and table
+declined the same way when its paragraphs, headings and table
 cells hold very long `*` and `_` runs (one run of about 1,000, or many
 shorter ones) or very many backtick runs in all, or when its lines, in code blocks too, hold very long runs
 of `` ` `` or `~`, or of `*` or `_` with blanks (a few thousand on a line,
@@ -119,7 +148,7 @@ the layout of `jq .` and Python's `json.dumps(indent=2)`. Keys, strings and
 numbers are kept as written. `.jsonc` comments are kept, and one blank line
 between members is kept. A trailing comma is a syntax error to the grammar,
 and so, wrongly, is a `+` in an exponent (`1e+10`); a file with either is
-left unchanged with a warning. A member with a comment between its
+declined. A member with a comment between its
 key and value is kept as written.
 
 **YAML** targets Prettier's YAML output: block collections are re-indented,
@@ -132,8 +161,8 @@ trailing spaces and tabs, its lines of blanks, and the blank lines a `+`
 scalar keeps are part of its value and stay, where Prettier drops a last
 line of blanks. A block scalar that is a whole document keeps its
 indentation, and one that ends the file without a final newline gets
-none, since the newline would become part of its value. A file is left
-unchanged with a warning when moving an indented top-level scalar to
+none, since the newline would become part of its value. A file is
+declined when moving an indented top-level scalar to
 column 0 would turn a line starting with `---` or `...` into a document
 marker. A `...` document end is dropped, as Prettier does, except before
 directives, where it stays, and before a document without its own `---`,
@@ -168,8 +197,8 @@ from CommonMark and GFM: a code fence closed on an indented line or after
 text; a table with a `|` inside a cell, more cells in a row than its
 header, or a row indented 4 columns; and a nested or adjacent block after
 lines that continue a paragraph. In each case the file is left unchanged
-with a warning such as `warning: a.md: Markdown could not be formatted
-without changing its meaning (line 12); file left unchanged`. Front
+and declined, for example `a.md: not formatted (Markdown could not be
+formatted without changing its meaning (line 12))`. Front
 matter and `yaml` code blocks are formatted as YAML and are not part of
 the comparison; one holding a `{{ }}` or `{% %}` template is left as
 written. A trailing tab, or spaces followed by a tab, is not turned into
@@ -195,7 +224,7 @@ a trailing bracket comment takes its own line. A file CMake would reject althoug
 grammar accepts it, with a `\` before a line break outside quotes, an
 argument starting where a bracket comment ends (`#[[c]]b`), or a bracket argument
 touching a `)`, a quoted or bracket argument before it, or an argument
-after it (`(a)[[b]]`, `[[a]]b`), is left unchanged with a warning.
+after it (`(a)[[b]]`, `[[a]]b`), is declined.
 
 **Bash** targets Prettier's shell plugin (prettier-plugin-sh, which prints
 with shfmt's printer). Statements go on their own lines, a compound command
@@ -230,8 +259,8 @@ line continuation inside a word (`echo a\` then `b`, which bash reads as
 line break (`> out` on a line of its own, or followed by commands on the
 next lines). Only
 that statement is kept, or the whole `case` command when it is in a
-`case` item; the rest of the file is formatted. A file is left unchanged
-with a warning when the grammar skips text outside a statement
+`case` item; the rest of the file is formatted. A file is declined
+when the grammar skips text outside a statement
 (`cmd a \ ` before a line break), reads a comment right after a line
 continuation (`a\` then `#b`, which bash reads as `a#b`), ends a
 heredoc at a marker line with more text on it (`EOF&&`), or reads a

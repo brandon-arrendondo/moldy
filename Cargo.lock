@@ -290,6 +290,7 @@ dependencies = [
  "lang-parsing-substrate",
  "pulldown-cmark",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "toml",

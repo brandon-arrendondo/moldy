@@ -74,8 +74,10 @@ fn recursive_formatting_selects_only_implemented_languages() {
     assert!(check.status.success(), "{:?}", check);
 }
 
+/// A file the formatter declines is left unchanged and named, the run goes
+/// on to the other files, and it ends incomplete (exit 3) in every mode.
 #[test]
-fn syntax_errors_warn_and_leave_files_unchanged() {
+fn syntax_errors_leave_files_unchanged_and_make_the_run_incomplete() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("toolchain.toml"), "").unwrap();
     let broken = [
@@ -97,13 +99,13 @@ fn syntax_errors_warn_and_leave_files_unchanged() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         for (name, source) in broken {
             assert!(
-                stderr.contains(&format!("warning: {name}:")),
-                "{mode}: no warning for {name}: {stderr}"
+                stderr.contains(&format!("{name}: not formatted (")),
+                "{mode}: {name} not named: {stderr}"
             );
             assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), source);
         }
-        // The warning does not stop the run: later files are still handled.
-        assert_eq!(output.status.success(), mode == "--in-place", "{output:?}");
+        // A declined file does not stop the run, but the run is incomplete.
+        assert_eq!(output.status.code(), Some(3), "{output:?}");
     }
     assert_eq!(
         fs::read_to_string(dir.path().join("ok.json")).unwrap(),
@@ -207,6 +209,7 @@ fn shared_and_formatter_ignores_apply_to_explicit_inputs() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "selected.c: would reformat\n"
+        "selected.c: would reformat\n\
+         moldy: 1 file: 1 would be reformatted, 0 unchanged, 0 not formatted\n"
     );
 }

@@ -4,5 +4,6 @@
   entry: moldy --in-place
   language: rust
   types_or: [c, c++]
-  # Show moldy's warnings (files left unchanged) even when the hook passes.
+  # Show moldy's per-file lines and summary even when the hook passes. A file
+  # moldy cannot format (left unchanged, unreadable) fails the hook (exit 3).
   verbose: true
