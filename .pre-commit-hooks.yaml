@@ -1,9 +1,12 @@
 - id: moldy
   name: moldy
   description: Format C/C++ source files with moldy (override types_or for other languages)
-  entry: moldy --in-place
+  entry: moldy --in-place --allow-empty
   language: rust
   types_or: [c, c++]
-  # Show moldy's per-file lines and summary even when the hook passes. A file
-  # moldy cannot format (left unchanged, unreadable) fails the hook (exit 3).
+  # --allow-empty: pre-commit passes the staged files, and a batch of files
+  # that moldy.toml or toolchain.toml ignores selects none, which is not a
+  # failure here. Show moldy's per-file lines and summary even when the hook
+  # passes. A file moldy cannot format (left unchanged, unreadable) fails the
+  # hook (exit 3).
   verbose: true

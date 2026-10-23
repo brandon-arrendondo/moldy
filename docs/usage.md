@@ -4,19 +4,19 @@
 moldy [OPTIONS] <FILES>...
 ```
 
-| Option                   | Behavior                                                                                      |
-| ------------------------ | --------------------------------------------------------------------------------------------- |
-| `-i`, `--in-place`       | Write changed files back to their paths.                                                      |
-| `--check`                | Write no formatted output; report changed filenames on stderr and exit 1 if any would change. |
-| `--line-endings <STYLE>` | Explicitly normalize output endings; default preserves mapped source endings.                 |
-| `-r`, `--recursive`      | Walk directories, following symbolic links.                                                   |
-| `--allow-empty`          | Accept a run that selects no files: report it on stderr and exit 0 instead of 3.              |
+| Option                       | Behavior                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `-i`, `--in-place`           | Write changed files back to their paths.                                                      |
+| `--check`                    | Write no formatted output; report changed filenames on stderr and exit 1 if any would change. |
+| `--line-endings <STYLE>`     | Explicitly normalize output endings; default preserves mapped source endings.                 |
+| `-r`, `--recursive`          | Walk directories, following symbolic links.                                                   |
+| `--allow-empty`              | Accept a run that selects no files: report it on stderr and exit 0 instead of 3.              |
 | `--completion-report <FILE>` | Write each selected file's outcome and the counts to `FILE` as JSON, even when the run fails. |
-| `-c`, `--config <FILE>`  | Load this TOML file instead of checking for `moldy.toml` in the current directory.            |
-| `--preset <NAME>`        | Use a bundled preset instead of a config file; conflicts with `--config`.                     |
-| `--dump-tree`            | Print each file's tree-sitter CST; this debug option is hidden from help.                     |
-| `-h`, `--help`           | Print help.                                                                                   |
-| `-V`, `--version`        | Print version.                                                                                |
+| `-c`, `--config <FILE>`      | Load this TOML file instead of checking for `moldy.toml` in the current directory.            |
+| `--preset <NAME>`            | Use a bundled preset instead of a config file; conflicts with `--config`.                     |
+| `--dump-tree`                | Print each file's tree-sitter CST; this debug option is hidden from help.                     |
+| `-h`, `--help`               | Print help.                                                                                   |
+| `-V`, `--version`            | Print version.                                                                                |
 
 `--check` and `--in-place` cannot be combined. Without either option, formatted files are concatenated on stdout without filename separators. Use one input per command when redirecting stdout to a file.
 
@@ -79,7 +79,7 @@ Under `--check` and `--in-place`, a summary always ends stderr, for example `mol
 
 A run that selects no files is incomplete, because a check of nothing does not establish that a project is formatted. Pass `--allow-empty` when an empty selection is expected.
 
-`--completion-report <FILE>` writes the outcome of every selected file as JSON, whatever the mode, and writes it even when the run fails, so an `--in-place` run shows which files it did rewrite:
+`--completion-report <FILE>` writes the outcome of every selected file as JSON, whatever the mode, and writes it even when the run fails, so an `--in-place` run shows which files it did rewrite. Moldy removes an existing report file as soon as it has read its arguments, so a run that cannot start (exit 2) leaves no report, never a stale one; an argument error that clap reports stops moldy before that and leaves the file alone. A file named twice is handled, and counted, once:
 
 ```json
 {

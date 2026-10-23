@@ -16,10 +16,9 @@ walk and formatting errors already propagate through the CLI, but those
 existing error paths do not cover the skipped-directory or empty-selection
 cases. Exit 1 currently covers both formatting differences (the explicit
 `process::exit(1)`) and failures returned from `main` through
-`anyhow::Result`; Clap usage errors already exit 2. The mapping below is
-proposed, including moving operational failures from 1 to 2.
-The mapping first proposed here (2 for every failure) was superseded on
-2026-10-23 by the suite-wide contract below.
+`anyhow::Result`; Clap usage errors already exit 2. This record first
+proposed exit 2 for every failure; the suite-wide contract ruled on
+2026-10-23, below, replaced that mapping.
 
 ## Decision
 

@@ -282,3 +282,92 @@ fn what_the_walk_cannot_reach_is_failed() {
     }
     assert_eq!(failed, expected);
 }
+
+/// The published hook's own entry, as pre-commit runs it: on a batch of
+/// staged files that moldy.toml ignores, it selects none and passes.
+#[test]
+fn the_published_hook_passes_an_all_ignored_batch() {
+    let hooks = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/.pre-commit-hooks.yaml"
+    ))
+    .unwrap();
+    let entry = hooks
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("entry: "))
+        .unwrap();
+    let mut words = entry.split_whitespace();
+    assert_eq!(words.next(), Some("moldy"));
+    let mut args: Vec<&str> = words.collect();
+    let dir = project();
+    fs::write(
+        dir.path().join("moldy.toml"),
+        "[ignore]\npatterns = [\"vendor/**\"]\n",
+    )
+    .unwrap();
+    fs::create_dir(dir.path().join("vendor")).unwrap();
+    fs::write(dir.path().join("vendor/v.c"), UNFORMATTED).unwrap();
+    args.push("vendor/v.c");
+    let output = moldy(dir.path(), &args);
+    assert_eq!(output.status.code(), Some(0), "{entry}: {output:?}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("vendor/v.c")).unwrap(),
+        UNFORMATTED
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_named_file_behind_an_unsearchable_directory_is_failed_not_missing() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = project();
+    let locked = dir.path().join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("a.c"), FORMATTED).unwrap();
+    let mode = |m| fs::set_permissions(&locked, fs::Permissions::from_mode(m)).unwrap();
+    mode(0o000);
+    // Root can still search the directory, so the case cannot arise there.
+    let searchable = locked.join("a.c").try_exists().is_ok();
+    let output = moldy(dir.path(), &["--check", "locked/a.c"]);
+    mode(0o755);
+    if searchable {
+        return;
+    }
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert!(
+        stderr(&output).contains("locked/a.c: not formatted ("),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_run_that_cannot_start_leaves_no_stale_report() {
+    let dir = project();
+    let report = dir.path().join("report.json");
+    fs::write(&report, "{\"complete\": true}\n").unwrap();
+    let output = moldy(
+        dir.path(),
+        &[
+            "--check",
+            "gone.c",
+            "--completion-report",
+            report.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!report.exists());
+}
+
+#[test]
+fn a_file_named_twice_is_counted_once() {
+    let dir = project();
+    fs::write(dir.path().join("g.c"), FORMATTED).unwrap();
+    let output = moldy(dir.path(), &["--check", "g.c", "g.c"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr(&output).starts_with("moldy: 1 file:"),
+        "{}",
+        stderr(&output)
+    );
+}

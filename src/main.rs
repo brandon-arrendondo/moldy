@@ -90,6 +90,7 @@ fn main() -> ExitCode {
 
 fn run() -> anyhow::Result<u8> {
     let cli = Cli::parse();
+    remove_stale_report(cli.completion_report.as_deref());
     let (config, ignore) = load_run_config(&cli).map_err(invocation)?;
     let (paths, walk_losses) = expand_paths(&cli.files, cli.recursive, &ignore)?;
 
@@ -114,6 +115,15 @@ fn run() -> anyhow::Result<u8> {
     run.print_summary();
     run.write_report(cli.completion_report.as_deref())?;
     Ok(run.exit_code())
+}
+
+/// Removes a report left by an earlier run, so that a run that cannot start
+/// (exit 2) leaves none rather than a stale one; the run writes its own at
+/// the end.
+fn remove_stale_report(path: Option<&Path>) {
+    if let Some(path) = path {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// An error that stops the run before any file is handled, as an
@@ -272,15 +282,33 @@ fn expand_paths(
                 return Err(InvocationError(message).into());
             }
             walk(p, ignore, &mut out, &mut lost);
-        } else if !p.exists() {
-            let message = format!("{} does not exist", p.display());
-            return Err(InvocationError(message).into());
-        } else if !should_ignore(p, ignore) {
-            out.push(p.clone());
+            continue;
+        }
+        // A path whose existence cannot be checked (a directory on the way
+        // without search permission) exists for all moldy knows: it is a
+        // selected file that cannot be read, not a missing one.
+        match p.try_exists() {
+            Ok(false) => {
+                let message = format!("{} does not exist", p.display());
+                return Err(InvocationError(message).into());
+            }
+            _ if should_ignore(p, ignore) => {}
+            Ok(true) => out.push(p.clone()),
+            Err(err) => lost.push((p.clone(), err.to_string())),
         }
     }
 
-    Ok((out, lost))
+    Ok((dedup(out), lost))
+}
+
+/// `paths` with each repeat after the first dropped, so a file named twice
+/// is handled and counted once.
+fn dedup(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    paths
+        .into_iter()
+        .filter(|p| seen.insert(p.clone()))
+        .collect()
 }
 
 /// Recursive discovery under `root`. What the walk cannot reach, a directory
