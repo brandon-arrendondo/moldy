@@ -56,7 +56,7 @@ library's `format_source_with_line_endings` API. See
 | CMake    | `CMakeLists.txt`, `.cmake`            | —             |
 | Bash     | `.sh`, `.bash`                        | —             |
 
-Extensions and file names come from the compiled substrate registry. A `.h` path selects C; Moldy does not use the substrate's content-based C++ header detection. Use a C++ extension for C++ headers. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
+Extensions and file names come from the compiled substrate registry. Extensions match in any case, so `A.C` and `B.H`, as Windows-built source trees often name them, are C and `.CPP` is C++; GCC's convention that `.C` is C++ is not followed. File names such as `CMakeLists.txt` match as written. A `.h` path selects C; Moldy does not use the substrate's content-based C++ header detection. Use a C++ extension for C++ headers. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
 
 Directories require `--recursive`; otherwise Moldy warns and skips them. Recursive discovery uses the substrate's `is_discoverable_file`, which selects the extensions and file names above and skips `.h`. Explicit file paths are attempted even if their extension is unsupported and then fail at dispatch. Ignore patterns apply to both explicit paths and recursive files; see [configuration](configuration.md).
 

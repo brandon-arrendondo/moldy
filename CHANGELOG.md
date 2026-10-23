@@ -5,6 +5,15 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- Files with upper- or mixed-case extensions, such as `A.C` and `B.H` from
+  Windows-built source trees, are formatted and checked: `A.C` is C, and
+  `--recursive` finds it, while `B.H`, like any `.h` header, is formatted
+  when named. `.C` is C, not C++. `[ignore].patterns` and `toolchain.toml`
+  ignore paths stay case-sensitive, so `*.c` does not ignore `A.C`; list
+  both cases or use a directory pattern.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

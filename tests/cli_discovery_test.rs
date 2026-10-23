@@ -118,6 +118,54 @@ fn syntax_errors_warn_and_leave_files_unchanged() {
     assert_eq!(String::from_utf8_lossy(&stdout.stdout), "a: [1, 2\n");
 }
 
+/// Upper-case extensions, as Windows-built source trees carry them, are C:
+/// `A.C` is formatted when named and found by `--recursive`, and `B.H`, like
+/// any header, when named but not by the walk.
+#[test]
+fn upper_case_c_extensions_are_c() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("toolchain.toml"), "").unwrap();
+    fs::create_dir(dir.path().join("up")).unwrap();
+    let unformatted = "int foo(){return 0;}";
+    fs::write(dir.path().join("up/A.C"), unformatted).unwrap();
+    fs::write(dir.path().join("up/B.H"), unformatted).unwrap();
+    let moldy = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    // Unformatted, so a check that reads either file fails.
+    for args in [["--check", "up/A.C"], ["--check", "up/B.H"]] {
+        assert!(!moldy(&args).status.success(), "{args:?}");
+    }
+    let walk = moldy(&["--check", "--recursive", "up"]);
+    assert!(!walk.status.success(), "{walk:?}");
+
+    let output = moldy(&["--in-place", "--recursive", "up"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(fs::read_to_string(dir.path().join("up/A.C"))
+        .unwrap()
+        .contains("return 0;\n"));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("up/B.H")).unwrap(),
+        unformatted
+    );
+    for args in [
+        ["--check", "up/A.C"].as_slice(),
+        &["--check", "--recursive", "up"],
+    ] {
+        let check = moldy(args);
+        assert!(check.status.success(), "{args:?}: {check:?}");
+    }
+
+    let output = moldy(&["--in-place", "up/B.H"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(moldy(&["--check", "up/B.H"]).status.success());
+}
+
 #[test]
 fn explicit_c_header_is_formatted() {
     let dir = tempfile::tempdir().unwrap();
