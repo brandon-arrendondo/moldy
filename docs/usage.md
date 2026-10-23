@@ -280,14 +280,18 @@ assignments it runs on past a comment).
 
 **reStructuredText** follows docstrfmt's layout without its rewrites that
 change meaning. Paragraphs are rewrapped at 88 columns, with runs of
-spaces collapsed to one (except inside inline literals) and a word
+spaces collapsed to one (except inside inline literals, and between
+sentences with `sentence_spacing = "preserve"`) and a word
 longer than the line on a line of its own; a line is never left made only
 of punctuation, which would read as a title. Section titles are written in
 one style per level, assigned in the order the input's styles first
 appear: `#` and `*` with overlines and the title padded by a space, then
 `=`, `-`, `^`, `"`, `'`, `~`, `+`, `.`, `` ` ``, `_` and `:` underlines; a
 file whose levels skip one, or go past 13, is left unchanged and
-declined. Bullets become `-` (`*` for a list right after a separate list),
+declined. With `heading_style = "preserve"` each title keeps its own
+style and only its adornment's length changes. Bullets become `-` (`*`
+for a list right after a separate list), or keep their character with
+`bullet_style = "preserve"`;
 enumerated lists are renumbered from their first value with a `.`, and a
 list item is followed by a blank line only when it holds more than one
 block. List bodies are indented by their marker's width; definitions,

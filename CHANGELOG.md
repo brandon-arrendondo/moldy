@@ -17,7 +17,10 @@ What changed for users of Moldy, newest release first. See
   from docutils, or one Moldy cannot confirm keeps its structure is left
   unchanged and reported as not formatted. Recursive formatting (`-r`) now selects `.rst`
   files.
-- An `[rst]` configuration section for indentation and line width.
+- An `[rst]` configuration section for indentation and line width, and
+  `heading_style`, `bullet_style` and `sentence_spacing` options that keep
+  a document's own title adornments, bullet characters and two spaces
+  between sentences instead of docstrfmt's.
 
 ## [0.5.1] - 2026-10-25
 
