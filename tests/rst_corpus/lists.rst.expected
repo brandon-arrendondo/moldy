@@ -38,3 +38,10 @@ term 2 : classifier
 :Long field: a field body that is long enough to be rewrapped onto the next line because
     it passes the width
 :empty:
+
+A block quote holding a list:
+
+    - first item
+    - second item, continued
+
+    -a        an option list in a block quote
