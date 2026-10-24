@@ -1,7 +1,8 @@
 # ADR-0006: Moldy normalizes layout, and a project can keep its own conventions
 
-**Status:** Proposed, 2026-10-23. Awaits the maintainer's review. The
-reStructuredText `[rst]` options it describes are implemented.
+**Status:** Accepted, 2026-10-24 (Brandon Arrendondo). Proposed
+2026-10-23. The reStructuredText `[rst]` options it describes are
+implemented.
 
 ## Context
 
@@ -53,6 +54,13 @@ A new convention normalized by default needs a `preserve` option before a
 project is asked to adopt the formatter. A change to the default stays in
 line with the reference tool.
 
+More generally, where a rule is a judgment call that reasonable projects
+would make differently, Moldy gives it a configuration option rather than
+settling it for everyone. The default follows the reference tool; the
+option lets a project keep its own answer. Whether two spaces after a
+period mark a sentence end is one such call, and so is whether rewrapping
+prose is wanted at all.
+
 ## Consequences
 
 - reStructuredText has `[rst] heading_style`, `bullet_style` and
@@ -62,9 +70,9 @@ line with the reference tool.
 - Rewrapping prose is layout, not a convention. A line break inside a
   reStructuredText paragraph means nothing to docutils, so text an author
   broke by hand is rewrapped. Markdown follows Prettier's
-  `proseWrap: preserve` and keeps its line breaks. A reStructuredText
-  option to keep line breaks would be a separate decision, if a project
-  needs one.
+  `proseWrap: preserve` and keeps its line breaks. A project that needs
+  its reStructuredText line breaks kept would get an option for it, under
+  the rule above.
 - A preserved convention is still checked: the output must keep the
   document's meaning, and inconsistent input (a list whose items use
   different bullets, a skipped title level) is refused as before.
