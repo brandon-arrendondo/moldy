@@ -435,13 +435,15 @@ fn ends_sentence(word: &str) -> bool {
         .ends_with(['.', '?', '!'])
 }
 
-/// Whether `word` can start a sentence: its first letter or digit is a
-/// capital letter. This tells a sentence end from an abbreviation such as
-/// `vs.` or `e.g.`.
+/// Whether `word` can start a sentence: after any opening brackets or
+/// quotes, it does not start with a lowercase letter. This tells a sentence
+/// end from an abbreviation such as `vs.` or `e.g.`, and counts a sentence
+/// that starts with inline markup, a role, a digit or a symbol.
 fn starts_sentence(word: &str) -> bool {
-    word.chars()
-        .find(|c| c.is_alphanumeric())
-        .is_some_and(char::is_uppercase)
+    word.trim_start_matches(['(', '[', '"', '\'', '\u{2018}', '\u{201c}'])
+        .chars()
+        .next()
+        .is_some_and(|c| !c.is_lowercase())
 }
 
 /// What a list continues from when it directly follows another list in
@@ -1162,7 +1164,7 @@ impl<'a> Rst<'a> {
     }
 
     /// `words`, where with `spaced` a word that ends a sentence before a
-    /// capitalized word ends in a space when the source has two spaces or a
+    /// word that can start one ends in a space when the source has two spaces or a
     /// line break between them: a line break gives no spacing to keep, and
     /// two spaces there keep rewrapping stable.
     fn spaced_words(&self, start: usize, end: usize, node: Node, spaced: bool) -> Vec<String> {
