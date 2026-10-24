@@ -1,13 +1,3 @@
-A block quote holding a list, which the grammar reads as a paragraph:
-
-    - first item
-    - second item
-
-A list item with an indented continuation, read as a definition list:
-
-    - an item
-      continued
-
 - A list item with a literal block:
 
   ::
