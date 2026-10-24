@@ -116,8 +116,9 @@ whose documents follow one on purpose (see
 - `sentence_spacing = "preserve"` keeps two spaces between sentences
   where the source has two, and puts two where rewrapping joins a line
   that ends a sentence to the next. A sentence ends in `.`, `?` or `!` and
-  the next starts with a capital letter, so `vs.` or `e.g.` before a
-  lowercase word keeps one space.
+  the next starts with anything but a lowercase letter (a capital, a digit,
+  inline markup or a role), so `vs.` or `e.g.` before a lowercase word
+  keeps one space.
 
 For example, a Sphinx project with underline-only titles, `*` bullets, two
 spaces between sentences, 3-space directive bodies and text wrapped at 79
