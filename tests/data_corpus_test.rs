@@ -728,8 +728,8 @@ fn rst_corpus_matches_expected() {
 /// The `[rst]` style options keep each title's adornment, each list's
 /// bullet and two spaces between sentences, fixing only the adornment
 /// length; a sentence end at a line break gets two spaces when rewrapping
-/// joins the lines, and an abbreviation before a lowercase word does not end
-/// a sentence.
+/// joins the lines, a sentence may start with inline markup, and an
+/// abbreviation before a lowercase word does not end a sentence.
 #[test]
 fn rst_preserve_options_keep_source_style() {
     let source = "\
@@ -743,7 +743,7 @@ Setup
 Read this first.  It is short, compared with the
 other guides, vs.
 others.  Then
-continue.
+continue.  ``moldy`` runs.
 
 * one
 * two
@@ -763,7 +763,7 @@ Setup
 
 Read this first.  It is short, compared
 with the other guides, vs. others.  Then
-continue.
+continue.  ``moldy`` runs.
 
 * one
 * two
