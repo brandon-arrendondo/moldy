@@ -16,3 +16,7 @@
     function:: commented_out()
 
     Commented out.
+
+zyclictest start [options]
+    -i <interval>  Interval in microseconds
+    -l <loops>     Use loop mode with predefined number of cycles

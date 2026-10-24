@@ -327,10 +327,16 @@ fn is_adornment_line(line: &str) -> bool {
     }
 }
 
-/// A line that would start a list, field, explicit markup, line block or
-/// doctest: a paragraph starting this way is likely a grammar misread.
+/// A line that would start a list, field, explicit markup, line block,
+/// doctest or option list: a paragraph starting this way is likely a
+/// grammar misread.
 fn starts_like_block(line: &str) -> bool {
     let spaced = |rest: &str| rest.is_empty() || rest.starts_with([' ', '\t']);
+    // An option group ends at two spaces or the end of the line.
+    let group = line.split("  ").next().unwrap_or("").trim_end();
+    if !group.is_empty() && group.split(", ").all(is_option) {
+        return true;
+    }
     let mut chars = line.chars();
     if chars
         .next()
@@ -363,6 +369,35 @@ fn starts_like_block(line: &str) -> bool {
             || (inner.len() == 1 && inner.chars().all(|c| c.is_ascii_alphabetic()))
             || roman_value(&inner.to_ascii_lowercase()).is_some())
         && spaced(&line[word.len()..])
+}
+
+/// One option of an option list: `-a`, `--long`, `+a` or `/A`, with an
+/// optional argument after `=` or a space (`FILE`, `<file>`).
+fn is_option(option: &str) -> bool {
+    let (name, rest) = if let Some(long) = option.strip_prefix("--") {
+        let end = long
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(long.len());
+        (&long[..end], &long[end..])
+    } else if let Some(short) = option.strip_prefix(['-', '+', '/']) {
+        let end = short.chars().next().map_or(0, char::len_utf8);
+        (&short[..end], &short[end..])
+    } else {
+        return false;
+    };
+    if !name.starts_with(|c: char| c.is_ascii_alphanumeric()) {
+        return false;
+    }
+    let Some(arg) = rest.strip_prefix(['=', ' ']) else {
+        return rest.is_empty();
+    };
+    if let Some(inner) = arg.strip_prefix('<') {
+        return inner.ends_with('>') && !inner[..inner.len() - 1].contains(['<', '>']);
+    }
+    arg.starts_with(|c: char| c.is_ascii_alphabetic())
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// A simple or grid table border.
