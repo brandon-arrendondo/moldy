@@ -308,8 +308,8 @@ classifiers, footnote bodies, `\ ` escapes, admonition options and the
 spaces inside inline literals, and keeps simple and grid tables, literal
 blocks, doctests, option lists and line blocks as written. The grammar
 does not parse tables and reads some input differently from docutils
-(lists inside block quotes, a list item that continues after its literal
-block, a directive whose arguments continue on the next line); that text
+(a list item that continues after its literal block, a directive whose
+arguments continue on the next line); that text
 is kept as written, re-indented as a unit. A file is left unchanged and
 declined when the grammar's reading would make formatting change its
 meaning, such as a title it reads as a paragraph, a paragraph it runs on
