@@ -11,6 +11,6 @@ of each record before relying on it.
 | 0003 | [An incomplete or failed run never passes as clean](0003-incomplete-runs-never-pass-as-clean.md)                                                         | Accepted (implemented) |
 | 0004 | [Moldy formats text and never runs analysis transforms](0004-format-text-without-analysis-transforms.md)                                                 | Accepted               |
 | 0005 | [Preserve source line endings unless conversion is requested](0005-preserve-source-line-endings.md)                                                      | Proposed               |
-| 0006 | [Moldy normalizes layout, and a project can keep its own conventions](0006-layout-not-authored-style.md)                                                 | Proposed               |
+| 0006 | [Moldy normalizes layout, and a project can keep its own conventions](0006-layout-not-authored-style.md)                                                 | Accepted (implemented) |
 
 Contributor rules remain in [AGENTS.md](../../AGENTS.md).
