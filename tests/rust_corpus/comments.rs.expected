@@ -1,0 +1,35 @@
+pub fn router() -> Router {
+    Router::new()
+        // Data model endpoints (read-only, static)
+        .route("/a", get(a))
+}
+
+const T: [i32; 4] = [
+    15, // first
+    //   0-9 17,
+    18,
+    19,
+    // end of table
+];
+
+fn ranges(v: &mut Vec<u8>) {
+    v.drain(..=1);
+    let c = '\u{2_FFFF}';
+}
+
+fn args(
+    #[allow(unused)]
+    direction: u8,
+    #[allow(unused)]
+    expected: u8,
+) {}
+
+fn closure() {
+    let infix = |
+        lhs: Result<ParserNode<'i>, Vec<Error<Rule>>>,
+        op: Pair<'i, Rule>,
+        rhs: Result<ParserNode<'i>, Vec<Error<Rule>>>
+    | match op.as_rule() {
+        _ => lhs,
+    };
+}

@@ -49,6 +49,8 @@ enum Ws {
     None,
     Space,
     Newline,
+    /// A new line one level deeper, continuing the expression around it.
+    Continuation,
 }
 
 /// Delimiter pair + whether an inline (single-line) rendering pads with a
@@ -71,6 +73,19 @@ fn bracket_delims(kind: &str) -> Option<(&'static str, &'static str, bool)> {
         "ordered_field_declaration_list" => Some(("(", ")", false)),
         _ => None,
     }
+}
+
+/// tree-sitter-rust reads a prefix inclusive range `..=x` as `..` assigned
+/// `x`; spacing that `=` out would change the code.
+fn is_misread_prefix_range(node: Node) -> bool {
+    let left = node.child_by_field_name("left");
+    let op = left.and_then(|l| l.next_sibling());
+    left.zip(op).is_some_and(|(l, op)| {
+        l.kind() == "range_expression"
+            && l.child_count() == 1
+            && op.kind() == "="
+            && l.end_byte() == op.start_byte()
+    })
 }
 
 struct Fmt<'a> {
@@ -174,6 +189,12 @@ impl<'a> Fmt<'a> {
                 // to C preprocessor directives.
                 self.raw(self.node_text(node).trim_end_matches('\n'));
             }
+            // What the grammar could not read, and `..=x` read as an
+            // assignment to `..`, are kept as written.
+            "ERROR" => self.raw(self.node_text(node)),
+            "assignment_expression" if is_misread_prefix_range(node) => {
+                self.raw(self.node_text(node));
+            }
             "block" | "declaration_list" => self.emit_brace_block(node),
             "field_declaration_list" | "enum_variant_list" => self.emit_multiline_field_list(node),
             "match_block" => self.emit_brace_block(node),
@@ -207,6 +228,12 @@ impl<'a> Fmt<'a> {
                     self.ensure_nl();
                     self.emit_indent();
                 }
+                Ws::Continuation => {
+                    self.ensure_nl();
+                    self.depth += 1;
+                    self.emit_indent();
+                    self.depth -= 1;
+                }
             }
             self.emit_node(child);
             prev = Some(child);
@@ -232,6 +259,13 @@ impl<'a> Fmt<'a> {
         // this covers the generic-fallback case (match arms, parameters).
         if matches!(pk, "attribute_item" | "inner_attribute_item") {
             return Ws::Newline;
+        }
+        // A line comment runs to the end of its line, so what follows it
+        // starts a new one. One that had a line of its own keeps it.
+        if pk == "line_comment"
+            || (ck == "line_comment" && cur.start_position().row > prev.end_position().row)
+        {
+            return Ws::Continuation;
         }
 
         // No space after these "attaching" tokens.
@@ -503,11 +537,11 @@ impl<'a> Fmt<'a> {
         // closure or struct literal as the sole call argument) stays hugged
         // against its own parens/brackets — its content handles its own
         // line breaks.
-        let needs_break = if groups.len() <= 1 {
-            false
-        } else if self.config.rust.width_based_wrapping {
-            let current_col = self.current_column();
-            let inline = self.render_scratch(|s| {
+        // A line comment runs to the end of its line, so a list holding
+        // one can only be laid out one item per line.
+        let has_comment = groups.iter().flatten().any(|n| n.kind() == "line_comment");
+        let render_inline = |s: &mut Self| {
+            s.render_scratch(|s| {
                 if pad {
                     s.raw(" ");
                 }
@@ -520,11 +554,22 @@ impl<'a> Fmt<'a> {
                 if pad {
                     s.raw(" ");
                 }
-            });
+            })
+        };
+        let needs_break = if has_comment {
+            true
+        } else if groups.len() <= 1 {
+            false
+        } else if self.config.rust.width_based_wrapping {
+            let current_col = self.current_column();
+            let inline = render_inline(self);
             let total_width = current_col + open.len() + inline.chars().count() + close.len();
             inline.contains('\n') || total_width > self.config.rust.max_width as usize
         } else {
+            // A list that renders over several lines is split now, as the
+            // next run would split it for spanning lines.
             self.src[node.start_byte()..node.end_byte()].contains('\n')
+                || render_inline(self).contains('\n')
         };
         if !needs_break {
             if pad {
@@ -541,22 +586,57 @@ impl<'a> Fmt<'a> {
             }
             self.raw(close);
         } else {
+            // Comments take no comma: one that started on the previous
+            // item's line stays there, any other gets its own line.
             self.nl();
             self.depth += 1;
-            for group in &groups {
-                self.emit_indent();
-                self.emit_group(group, node);
-                let is_base_update =
-                    group.last().map(|n| n.kind()) == Some("base_field_initializer");
-                if !is_base_update {
-                    self.raw(",");
+            let is_comment = |n: &Node| matches!(n.kind(), "line_comment" | "block_comment");
+            let mut last_row = node.start_position().row;
+            for (gi, group) in groups.iter().enumerate() {
+                let first = group.iter().position(|n| !is_comment(n));
+                let last = group.iter().rposition(|n| !is_comment(n));
+                let (lead, core, trail) = match (first, last) {
+                    (Some(f), Some(l)) => (&group[..f], &group[f..=l], &group[l + 1..]),
+                    _ => (&group[..], &group[..0], &group[..0]),
+                };
+                for &comment in lead {
+                    last_row = self.emit_list_comment(comment, last_row);
                 }
-                self.nl();
+                if let Some(end) = core.last() {
+                    self.emit_indent();
+                    self.emit_group(core, node);
+                    // `..base` takes no comma, and neither does a closure's
+                    // last parameter: tree-sitter-rust misreads `a, |`.
+                    let no_comma = end.kind() == "base_field_initializer"
+                        || (node.kind() == "closure_parameters" && gi + 1 == groups.len());
+                    if !no_comma {
+                        self.raw(",");
+                    }
+                    self.nl();
+                    last_row = end.end_position().row;
+                }
+                for &comment in trail {
+                    last_row = self.emit_list_comment(comment, last_row);
+                }
             }
             self.depth -= 1;
             self.emit_indent();
             self.raw(close);
         }
+    }
+
+    /// Emits a comment in a one-item-per-line list, after the item it
+    /// trailed in the source or on its own line, and returns its row.
+    fn emit_list_comment(&mut self, comment: Node, last_row: usize) -> usize {
+        if comment.start_position().row == last_row && self.out.ends_with(",\n") {
+            self.out.pop();
+            self.raw(" ");
+        } else {
+            self.emit_indent();
+        }
+        self.emit_node(comment);
+        self.nl();
+        comment.end_position().row
     }
 }
 

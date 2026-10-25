@@ -99,6 +99,14 @@ fn is_simple_power_operand(node: Node) -> bool {
     }
 }
 
+/// A clause such as `elif`/`except`/`case` whose last child is its block.
+fn ends_with_block(node: Node) -> bool {
+    node.child_count() > 0
+        && node
+            .child(node.child_count() - 1)
+            .is_some_and(|c| c.kind() == "block")
+}
+
 /// A bare string expression statement — used to detect a leading docstring.
 fn is_docstring(node: Node) -> bool {
     node.kind() == "expression_statement"
@@ -268,6 +276,11 @@ impl<'a> Fmt<'a> {
         for &child in group {
             match self.ws_before(child, prev, parent) {
                 Ws::None => {}
+                // PEP8 puts two spaces before an inline comment.
+                Ws::Space if child.kind() == "comment" => {
+                    self.space();
+                    self.raw(" ");
+                }
                 Ws::Space => self.space(),
                 Ws::Newline => {
                     self.ensure_nl();
@@ -294,8 +307,11 @@ impl<'a> Fmt<'a> {
             return Ws::NewlineBare;
         }
         // Whatever follows a block (elif/else/except/finally, or the next
-        // header entirely) resumes on a new line at the current depth.
-        if pk == "block" {
+        // header entirely) resumes on a new line at the current depth. So
+        // does whatever follows a clause that ends in a block (the `else`
+        // after an `elif`, a second `except`), and whatever follows a
+        // comment, which runs to the end of its line.
+        if pk == "block" || pk == "comment" || ends_with_block(prev) {
             return Ws::Newline;
         }
         // Stacked decorators, and the def/class they annotate, each get
@@ -428,12 +444,19 @@ impl<'a> Fmt<'a> {
                 }
                 s.emit_group(group, node);
             }
+            // A one-element tuple needs its comma: `(x,)`, not `(x)`.
+            if node.kind() == "tuple" && groups.len() == 1 {
+                s.raw(",");
+            }
         });
         let max_width = self.config.python.max_width as usize;
+        // A comment runs to the end of its line, so a list holding one can
+        // only be laid out one item per line.
+        let has_comment = groups.iter().flatten().any(|n| n.kind() == "comment");
 
         // Tier 1: fits on the current line.
         let tier1_width = current_col + open.len() + inline.chars().count() + close.len();
-        if !inline.contains('\n') && tier1_width <= max_width {
+        if !has_comment && !inline.contains('\n') && tier1_width <= max_width {
             self.raw(&inline);
             self.raw(close);
             return;
@@ -442,7 +465,8 @@ impl<'a> Fmt<'a> {
         // Tier 2: fits hugged onto its own indented line, unsplit.
         let body_indent = self.indent_str_at(self.depth + 1).chars().count();
         let tier2_width = body_indent + inline.chars().count();
-        if !inline.contains('\n') && (groups.len() == 1 || tier2_width <= max_width) {
+        if !has_comment && !inline.contains('\n') && (groups.len() == 1 || tier2_width <= max_width)
+        {
             self.nl();
             self.depth += 1;
             self.emit_indent();
@@ -454,18 +478,50 @@ impl<'a> Fmt<'a> {
             return;
         }
 
-        // Tier 3: one item per line, trailing comma.
+        // Tier 3: one item per line, trailing comma. Comments take no
+        // comma: one that started on the previous item's line stays there,
+        // any other gets its own line.
         self.nl();
         self.depth += 1;
+        let mut last_row = node.start_position().row;
         for group in &groups {
-            self.emit_indent();
-            self.emit_group(group, node);
-            self.raw(",");
-            self.nl();
+            let first = group.iter().position(|n| n.kind() != "comment");
+            let last = group.iter().rposition(|n| n.kind() != "comment");
+            let (lead, core, trail) = match (first, last) {
+                (Some(f), Some(l)) => (&group[..f], &group[f..=l], &group[l + 1..]),
+                _ => (&group[..], &group[..0], &group[..0]),
+            };
+            for &comment in lead {
+                last_row = self.emit_list_comment(comment, last_row);
+            }
+            if let Some(end) = core.last() {
+                self.emit_indent();
+                self.emit_group(core, node);
+                self.raw(",");
+                self.nl();
+                last_row = end.end_position().row;
+            }
+            for &comment in trail {
+                last_row = self.emit_list_comment(comment, last_row);
+            }
         }
         self.depth -= 1;
         self.emit_indent();
         self.raw(close);
+    }
+
+    /// Emits a comment in a one-item-per-line list, after the item it
+    /// trailed in the source or on its own line, and returns its row.
+    fn emit_list_comment(&mut self, comment: Node, last_row: usize) -> usize {
+        if comment.start_position().row == last_row && self.out.ends_with(",\n") {
+            self.out.pop();
+            self.raw("  ");
+        } else {
+            self.emit_indent();
+        }
+        self.emit_node(comment);
+        self.nl();
+        comment.end_position().row
     }
 }
 

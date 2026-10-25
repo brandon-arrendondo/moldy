@@ -5,6 +5,25 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- Rust: code after a `//` comment inside an expression, such as a method
+  chain or an array, stays on its own line instead of being joined onto the
+  comment's line, where it was commented out. A comment in a bracketed list
+  no longer takes a comma, and a list holding one is laid out one item per
+  line.
+- Rust: `..=x` and code tree-sitter-rust cannot read, such as the character
+  literal `'\u{2_FFFF}'`, are kept as written instead of being spaced apart.
+  A list that renders over several lines, such as parameters with
+  attributes, is split on the first run, so a second run no longer changes
+  it. A closure's parameters split one per line take no trailing comma,
+  which a second run read wrongly and broke.
+- Python: the last clause of an `if`/`elif`/`else` or a `try` with several
+  `except` clauses keeps its indentation instead of moving to column 0,
+  which broke the parse. A one-element tuple keeps its comma (`(x,)`), a
+  comment in a bracketed list no longer takes a comma or swallows the
+  closing bracket, and an inline comment gets two spaces before it.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added
