@@ -5,6 +5,14 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Added
+
+- `moldy - --stdin-filename NAME` formats source read from stdin and writes
+  it to stdout. `NAME` is the file the source stands for: its extension
+  chooses the language, and ignore patterns match it. `-` with `--in-place`
+  or `--check`, or without `--stdin-filename`, exits 2. Before, `-` was
+  taken as a file name and the run exited 3.
+
 ### Changed
 
 - A crash inside the formatter now fails only the file it was formatting:

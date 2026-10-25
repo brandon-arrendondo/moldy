@@ -157,6 +157,6 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 Load `moldy.toml` only from the current directory, or use `--config`. Presets
 bypass automatic config loading. Shared ignores come from the nearest
-`toolchain.toml` found by walking up from the current directory. Stdin is not
-implemented. See [development](docs/development.md) for required tool setup and
+`toolchain.toml` found by walking up from the current directory. `-` reads stdin, and
+`--stdin-filename` names the file it stands for. See [development](docs/development.md) for required tool setup and
 substrate migration validation.

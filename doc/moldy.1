@@ -4,6 +4,12 @@ moldy \- multi-language code formatter built on tree-sitter
 .SH SYNOPSIS
 .B moldy
 [\fIOPTIONS\fR] \fIFILE\fR [\fIFILE\fR ...]
+.br
+.B moldy
+[\fIOPTIONS\fR]
+.B \-\-stdin\-filename
+.I NAME
+.B \-
 .SH DESCRIPTION
 .B moldy
 reads one or more source files, applies whitespace and brace formatting
@@ -36,8 +42,9 @@ All configuration keys are optional; built-in defaults are used for any
 keys that are absent.
 .PP
 Inputs must be UTF-8 files with recognised extensions, or files named
-CMakeLists.txt. Standard input is
-not implemented; a file argument of \- is treated as a filesystem path.
+CMakeLists.txt. A file argument of \- reads the source from standard
+input instead; see
+.BR \-\-stdin\-filename .
 Multiple formatted files are concatenated on standard output without
 filename separators.
 .SH OPTIONS
@@ -75,6 +82,22 @@ New, joined, or unmatched lines use the predominant source ending; ties use
 its first ending, or LF when there are none. Presets and the legacy
 newlines.style setting do not request conversion. Check and in-place modes
 use the same policy. Normalization also covers opaque multiline text.
+.TP
+.BI \-\-stdin\-filename " NAME"
+With a file argument of \-, format standard input as the file
+.I NAME
+and write the result to standard output.
+.IR NAME 's
+extension or file name chooses the language, and ignore patterns match it;
+it need not exist. A
+.I NAME
+an ignore pattern covers selects nothing, and the source is printed as read.
+\- without this option, this option without \-, \- beside another file,
+and \- with
+.B \-\-in\-place
+or
+.B \-\-check
+are usage errors (exit status 2).
 .TP
 .B \-\-dump\-tree
 Print the tree-sitter CST for each input file to standard output and exit.

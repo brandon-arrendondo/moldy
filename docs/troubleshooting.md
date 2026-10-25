@@ -10,7 +10,7 @@
 
 **Files are unexpectedly ignored.** Inspect both Moldy's `[ignore].patterns` and the nearest `toolchain.toml` found from the current directory. Patterns match the candidate path and bare filename. Relative patterns are not rebased to the shared config's directory.
 
-**Piping to `moldy -` fails.** Stdin is not implemented. Save source to a file with a supported extension and pass its path.
+**Piping to `moldy -` fails with exit 2.** Stdin has no extension to choose the language from. Name the file the source stands for: `moldy - --stdin-filename main.c`.
 
 **Formatting differs from rustfmt or Black.** The presets implement selected compatibility policies. Read the [known limits](usage.md); Python quote normalization and magic trailing commas, and rustfmt packed multiline lists, are examples of differences.
 

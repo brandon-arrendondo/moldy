@@ -10,6 +10,7 @@ moldy [OPTIONS] <FILES>...
 | `--check`                    | Write no formatted output; report changed filenames on stderr and exit 1 if any would change. |
 | `--line-endings <STYLE>`     | Explicitly normalize output endings; default preserves mapped source endings.                 |
 | `-r`, `--recursive`          | Walk directories, following symbolic links.                                                   |
+| `--stdin-filename <NAME>`    | With `-`, the file name the source read from stdin stands for; see [below](#standard-input). |
 | `--allow-empty`              | Accept a run that selects no files: report it on stderr and exit 0 instead of 3.              |
 | `--completion-report <FILE>` | Write each selected file's outcome and the counts to `FILE` as JSON, even when the run fails. |
 | `-c`, `--config <FILE>`      | Load this TOML file instead of checking for `moldy.toml` in the current directory.            |
@@ -19,6 +20,16 @@ moldy [OPTIONS] <FILES>...
 | `-V`, `--version`            | Print version.                                                                                |
 
 `--check` and `--in-place` cannot be combined. Without either option, formatted files are concatenated on stdout without filename separators. Use one input per command when redirecting stdout to a file.
+
+## Standard input
+
+`moldy - --stdin-filename NAME` reads the source from stdin and writes the formatted result to stdout. Stdin has no extension, so `NAME` stands in for the file's path: its extension or file name chooses the language, as the table [below](#language-detection) gives it, and the config's ignore patterns match it. `NAME` need not exist. An editor passes the path of the buffer it pipes:
+
+```sh
+moldy - --stdin-filename src/parser.rs < src/parser.rs
+```
+
+The run ends like a run on one file, with the same exit statuses, and messages name `NAME`. A source the formatter declines is printed as read and exits 3. A `NAME` an ignore pattern covers selects nothing: the source is printed as read, and the run exits 3, or 0 with `--allow-empty`. Each of these is a usage error (exit 2): `-` without `--stdin-filename`, `--stdin-filename` without `-`, `-` beside another path, and `-` with `--in-place` or `--check`.
 
 ## Line endings
 
@@ -64,7 +75,7 @@ Directories require `--recursive`; a directory named without it stops the run be
 
 ## Output and exits
 
-Inputs must be UTF-8 files. Stdin is not implemented; `-` is currently treated as a filesystem path.
+Inputs must be UTF-8, whether files or [standard input](#standard-input).
 
 Each selected file ends one of four ways: changed (it would be, or was, reformatted), unchanged, declined (the formatter left it unchanged on purpose; see [below](#json-yaml-markdown-cmake-and-bash)), or failed (it could not be read, is not UTF-8, is in an unsupported language, or could not be written). A file that declines or fails does not stop the run: Moldy names it on stderr, for example `a.yaml: not formatted (YAML syntax error at line 3)`, and goes on to the next file. `--check` names each file that would change (`a.c: would reformat`) and `--in-place` each file it rewrote (`a.c: reformatted`).
 

@@ -385,3 +385,80 @@ fn a_file_named_twice_is_counted_once() {
         stderr(&output)
     );
 }
+
+/// Runs `args` with `input` on standard input.
+fn moldy_stdin(dir: &Path, args: &[&str], input: &[u8]) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_moldy"))
+        .current_dir(dir)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn standard_input_is_formatted_in_the_language_its_name_gives() {
+    let dir = project();
+    let args = ["-", "--stdin-filename", "src/f.c"];
+    let output = moldy_stdin(dir.path(), &args, UNFORMATTED.as_bytes());
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "int f()\n{\n    return 0;\n}\n"
+    );
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn standard_input_that_cannot_be_formatted_exits_3() {
+    let dir = project();
+    let args = ["-", "--stdin-filename", "a.yaml"];
+    let output = moldy_stdin(dir.path(), &args, b"a: [\n");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "a: [\n");
+    assert!(stderr(&output).starts_with("a.yaml: not formatted (YAML syntax error"));
+
+    let output = moldy_stdin(dir.path(), &["-", "--stdin-filename", "a.c"], b"\xff\n");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert!(stderr(&output).starts_with("a.c: not formatted (not valid UTF-8)"));
+}
+
+#[test]
+fn standard_input_under_an_ignored_name_is_printed_as_read() {
+    let dir = project();
+    fs::write(
+        dir.path().join("moldy.toml"),
+        "[ignore]\npatterns = [\"gen/*\"]\n",
+    )
+    .unwrap();
+    let args = ["-", "--stdin-filename", "gen/f.c", "--allow-empty"];
+    let output = moldy_stdin(dir.path(), &args, UNFORMATTED.as_bytes());
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), UNFORMATTED);
+    let output = moldy_stdin(dir.path(), &args[..3], UNFORMATTED.as_bytes());
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+}
+
+#[test]
+fn standard_input_used_wrongly_is_a_usage_error() {
+    let dir = project();
+    fs::write(dir.path().join("g.c"), FORMATTED).unwrap();
+    let cases: [&[&str]; 5] = [
+        &["-"],
+        &["--stdin-filename", "f.c", "g.c"],
+        &["-", "g.c", "--stdin-filename", "f.c"],
+        &["-i", "-", "--stdin-filename", "f.c"],
+        &["--check", "-", "--stdin-filename", "f.c"],
+    ];
+    for args in cases {
+        let output = moldy_stdin(dir.path(), args, UNFORMATTED.as_bytes());
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+    }
+}

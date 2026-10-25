@@ -30,9 +30,14 @@ Exit status:
     after_help = EXIT_STATUS_HELP
 )]
 struct Cli {
-    /// Source file(s) or directories to format.
+    /// Source file(s) or directories to format, or `-` for standard input.
     #[arg(required = true)]
     files: Vec<PathBuf>,
+
+    /// The file name the source read from `-` stands for: its extension
+    /// chooses the language, and ignore patterns match it.
+    #[arg(long, value_name = "NAME")]
+    stdin_filename: Option<PathBuf>,
 
     /// Path to TOML config file (default: look for moldy.toml in cwd).
     #[arg(short, long, value_name = "FILE", conflicts_with = "preset")]
@@ -91,7 +96,11 @@ fn main() -> ExitCode {
 fn run() -> anyhow::Result<u8> {
     let cli = Cli::parse();
     remove_stale_report(cli.completion_report.as_deref());
+    let stdin_name = stdin_name(&cli)?;
     let (config, ignore) = load_run_config(&cli).map_err(invocation)?;
+    if let Some(name) = stdin_name {
+        return run_stdin(&cli, &config, &ignore, name);
+    }
     let (paths, walk_losses) = expand_paths(&cli.files, cli.recursive, &ignore)?;
 
     if cli.dump_tree {
@@ -111,6 +120,52 @@ fn run() -> anyhow::Result<u8> {
     for path in &paths {
         let (status, reason) = format_one(path, &cli, &config);
         run.record(path, status, reason);
+    }
+    run.print_summary();
+    run.write_report(cli.completion_report.as_deref())?;
+    Ok(run.exit_code())
+}
+
+/// The name standard input is formatted as, when the one path named is
+/// `-`. Reading standard input needs a name to choose the language, writes
+/// only to stdout, and takes no other path; anything else is a usage error.
+fn stdin_name(cli: &Cli) -> anyhow::Result<Option<&Path>> {
+    let reads_stdin = cli.files.iter().any(|p| p.as_os_str() == "-");
+    let usage = |message: &str| Err(InvocationError(message.to_string()).into());
+    match (reads_stdin, cli.stdin_filename.as_deref()) {
+        (false, None) => Ok(None),
+        (false, Some(_)) => usage("--stdin-filename names the source read from -; pass -"),
+        (true, _) if cli.files.len() > 1 => usage("- reads standard input and takes no other path"),
+        (true, _) if cli.in_place || cli.check => {
+            usage("- writes to standard output; it cannot be used with --in-place or --check")
+        }
+        (true, None) => {
+            usage("- needs --stdin-filename NAME, whose extension chooses the language")
+        }
+        (true, Some(name)) => Ok(Some(name)),
+    }
+}
+
+/// Formats standard input as the file `name` and prints the result. A name
+/// an ignore pattern covers selects nothing, and the source is printed as
+/// read, so a pipe never loses it.
+fn run_stdin(cli: &Cli, config: &Config, ignore: &PathIgnore, name: &Path) -> anyhow::Result<u8> {
+    let source = read_stdin(name);
+    if cli.dump_tree {
+        formatter::dump_tree(name, &source?)?;
+        return Ok(0);
+    }
+    let mut run = Run::new(Mode::Stdout);
+    match source {
+        Err(err) => run.record(name, Status::Failed, Some(failure_reason(&err))),
+        Ok(source) if should_ignore(name, ignore) => {
+            print!("{source}");
+            run.select_nothing(cli.allow_empty);
+        }
+        Ok(source) => {
+            let (status, reason) = format_text(name, &source, cli, config);
+            run.record(name, status, reason);
+        }
     }
     run.print_summary();
     run.write_report(cli.completion_report.as_deref())?;
@@ -154,12 +209,16 @@ fn load_run_config(cli: &Cli) -> anyhow::Result<(Config, PathIgnore)> {
 /// Formats one file as the mode asks, and says how it ended. A file the
 /// formatter declines is printed unchanged in stdout mode, as before.
 fn format_one(path: &Path, cli: &Cli, config: &Config) -> (Status, Option<String>) {
-    let source = match read_source(path) {
-        Ok(source) => source,
-        Err(err) => return (Status::Failed, Some(failure_reason(&err))),
-    };
+    match read_source(path) {
+        Ok(source) => format_text(path, &source, cli, config),
+        Err(err) => (Status::Failed, Some(failure_reason(&err))),
+    }
+}
+
+/// Formats `source`, read as `path`, as [`format_one`] does.
+fn format_text(path: &Path, source: &str, cli: &Cli, config: &Config) -> (Status, Option<String>) {
     let formatted = match contain(|| {
-        formatter::format_source_with_line_endings(path, &source, config, ending_policy(cli))
+        formatter::format_source_with_line_endings(path, source, config, ending_policy(cli))
     }) {
         Ok(Ok(formatted)) => formatted,
         Ok(Err(
@@ -277,7 +336,18 @@ fn merge_toolchain_ignores_from(config: &mut Config, start_dir: &Path) -> anyhow
 }
 
 fn read_source(path: &Path) -> Result<String, error::MoldyError> {
-    let bytes = std::fs::read(path).map_err(|e| error::MoldyError::Io {
+    decode_source(path, std::fs::read(path))
+}
+
+/// Standard input, read as the file `name`.
+fn read_stdin(name: &Path) -> Result<String, error::MoldyError> {
+    let mut bytes = Vec::new();
+    let read = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes).map(|_| bytes);
+    decode_source(name, read)
+}
+
+fn decode_source(path: &Path, read: std::io::Result<Vec<u8>>) -> Result<String, error::MoldyError> {
+    let bytes = read.map_err(|e| error::MoldyError::Io {
         path: path.display().to_string(),
         source: e,
     })?;
@@ -301,10 +371,6 @@ fn expand_paths(
     let mut lost = Vec::new();
 
     for p in paths {
-        if p.as_os_str() == "-" {
-            out.push(p.clone());
-            continue;
-        }
         if p.is_dir() {
             if !recursive {
                 let message = format!("{} is a directory; pass -r to recurse", p.display());
