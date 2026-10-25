@@ -19,6 +19,11 @@ THRESHOLD="${1:-75}"
 EXCLUDE_REGEX="(main\.rs)"
 LCOV_OUT="lcov.info"
 
+if ! cargo llvm-cov --version >/dev/null 2>&1; then
+  echo "FAILED: cargo-llvm-cov is not installed (cargo install cargo-llvm-cov)"
+  exit 1
+fi
+
 echo "Running tests with coverage (threshold: ${THRESHOLD}%)..."
 echo "Excluding: ${EXCLUDE_REGEX}"
 echo ""
