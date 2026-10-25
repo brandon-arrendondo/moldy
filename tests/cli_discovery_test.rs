@@ -176,6 +176,10 @@ fn headers_are_formatted_in_the_language_of_their_content() {
     fs::write(dir.path().join("toolchain.toml"), "").unwrap();
     let cpp = "namespace ns {\nint twice(int a){return a*2;}\n}\n";
     let c = "int twice(int a){return a*2;}\nstruct s{int x;};\n";
+    // C with C++ guards, and a K&R definition, which C++ reads otherwise:
+    // formatted as C++, this header comes out differently.
+    let guarded = "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint add(int a,int b);\n\
+                   #ifdef __cplusplus\n}\n#endif\nint add(a,b)int a;int b;{return a+b;}\n";
     for (name, source) in [
         ("d.h", cpp),
         ("D.H", cpp),
@@ -183,6 +187,9 @@ fn headers_are_formatted_in_the_language_of_their_content() {
         ("b.h", c),
         ("B.H", c),
         ("ref.c", c),
+        ("guarded.h", guarded),
+        ("guarded.c", guarded),
+        ("guarded.hpp", guarded),
     ] {
         fs::write(dir.path().join(name), source).unwrap();
     }
@@ -203,6 +210,56 @@ fn headers_are_formatted_in_the_language_of_their_content() {
     let as_c = format("ref.c");
     assert_eq!(format("b.h"), as_c);
     assert_eq!(format("B.H"), as_c);
+    let guarded_as_c = format("guarded.c");
+    assert_ne!(guarded_as_c, format("guarded.hpp"));
+    assert_eq!(format("guarded.h"), guarded_as_c);
+}
+
+/// What the formatter reads a header as is what `--dump-tree` shows.
+#[test]
+fn a_header_dumps_the_tree_of_its_content_language() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("toolchain.toml"), "").unwrap();
+    let source = "namespace ns {\nint x;\n}\n";
+    fs::write(dir.path().join("a.h"), source).unwrap();
+    fs::write(dir.path().join("a.c"), source).unwrap();
+    let dump = |name: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .args(["--dump-tree", name])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{name}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let header = dump("a.h");
+    assert!(header.contains("namespace_definition"), "{header}");
+    assert_ne!(header, dump("a.c"));
+}
+
+/// A C header with a variable named `new` is C, but the substrate's content
+/// check reads its `new->next` as a C++ new-expression and formats it as
+/// `new ->next`. Enable once the substrate in use reads such a header as C.
+#[test]
+#[ignore = "the substrate's header check reads this C header as C++"]
+fn a_c_header_with_a_variable_named_new_stays_c() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("toolchain.toml"), "").unwrap();
+    let source = "struct node{struct node *next;};\n\
+                  static inline void add(struct node *new,struct node *head)\n\
+                  {new->next=head->next;head->next=new;}\n";
+    fs::write(dir.path().join("list.h"), source).unwrap();
+    fs::write(dir.path().join("list.c"), source).unwrap();
+    let format = |name: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .arg(name)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{name}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert_eq!(format("list.h"), format("list.c"));
 }
 
 #[test]

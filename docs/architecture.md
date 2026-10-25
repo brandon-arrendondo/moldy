@@ -12,7 +12,7 @@ Moldy uses `lang-parsing-substrate` 0.12.0. `default-features = false` keeps the
 4. Each formatter obtains its grammar through `language_for_key` and creates a tree-sitter parser. The debug `dump_tree` route uses `language_for_file`.
 5. Formatters emit text under `Config`. The CLI prints, compares, or writes it.
 
-Moldy currently uses extension-based `.h` detection and preserves its explicit-only discovery policy. Knots uses `is_parseable_extension` to include headers in recursive analysis and uses content sniffing for C++ `.h` files; these are separate consumer decisions.
+Moldy keeps `.h` explicit-only in discovery. A named `.h` takes its language from the substrate's `language_for_header_content`: C++ when the content can only be C++, otherwise C; formatting and `dump_tree` both follow it. Knots uses `is_parseable_extension` to include headers in recursive analysis and uses content sniffing for C++ `.h` files; these are separate consumer decisions.
 
 ## Formatter responsibilities
 

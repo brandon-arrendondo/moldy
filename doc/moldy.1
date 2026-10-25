@@ -61,8 +61,10 @@ printed to standard error.
 .TP
 .BR \-r ", " \-\-recursive
 Recurse into directories, formatting all source files with recognised
-extensions and every CMakeLists.txt. C .h headers are explicit-only and skipped by recursive
-discovery; .hpp and .hxx select C++ and are discovered recursively.
+extensions and every CMakeLists.txt. .h headers are explicit-only and skipped by recursive
+discovery; a named .h is formatted as C++ when its content can only be
+C++, and as C otherwise. .hpp and .hxx select C++ and are discovered
+recursively.
 .TP
 .B \-\-allow\-empty
 Accept a run that selects no files: report it on standard error and exit
