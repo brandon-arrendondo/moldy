@@ -119,6 +119,20 @@ fn a_run_that_cannot_start_exits_2_and_writes_nothing() {
 }
 
 #[test]
+fn an_unknown_preset_is_named_as_a_preset() {
+    let dir = project();
+    fs::write(dir.path().join("f.c"), UNFORMATTED).unwrap();
+    let output = moldy(dir.path(), &["--preset", "nosuch", "f.c"]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = stderr(&output);
+    assert!(
+        stderr.contains("unknown preset 'nosuch' (available: "),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("unsupported language"), "{stderr}");
+}
+
+#[test]
 fn an_empty_selection_exits_3_unless_allowed() {
     let dir = project();
     fs::create_dir(dir.path().join("empty")).unwrap();

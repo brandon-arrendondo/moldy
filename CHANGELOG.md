@@ -5,6 +5,12 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Changed
+
+- An unknown `--preset` is reported as `unknown preset 'NAME' (available:
+  ...)` instead of as an unsupported language. It still exits 2. Library
+  users see it as the new `MoldyError::UnknownPreset`.
+
 ## [0.5.1] - 2026-10-25
 
 ### Fixed

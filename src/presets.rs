@@ -55,12 +55,14 @@ pub fn describe() -> Vec<(&'static str, &'static str)> {
 
 /// Look up a built-in preset by name and parse it into a `Config`.
 pub fn load(name: &str) -> Result<Config, MoldyError> {
-    let preset = PRESETS.iter().find(|p| p.name == name).ok_or_else(|| {
-        MoldyError::UnsupportedLanguage(format!(
-            "unknown preset '{name}' (available: {})",
-            names().join(", ")
-        ))
-    })?;
+    let preset =
+        PRESETS
+            .iter()
+            .find(|p| p.name == name)
+            .ok_or_else(|| MoldyError::UnknownPreset {
+                name: name.to_string(),
+                available: names().join(", "),
+            })?;
     Config::parse(preset.toml, &format!("preset:{name}"))
 }
 
@@ -77,7 +79,11 @@ mod tests {
 
     #[test]
     fn unknown_preset_errors() {
-        assert!(load("does-not-exist").is_err());
+        let err = load("does-not-exist").unwrap_err();
+        assert!(matches!(err, MoldyError::UnknownPreset { .. }));
+        let message = err.to_string();
+        assert!(message.starts_with("unknown preset 'does-not-exist' (available: "));
+        assert!(message.contains("rustfmt-compat"));
     }
 
     #[test]

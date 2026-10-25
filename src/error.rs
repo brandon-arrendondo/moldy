@@ -78,4 +78,13 @@ pub enum MoldyError {
     /// No formatter is registered for the file's detected language.
     #[error("unsupported language for: {0}")]
     UnsupportedLanguage(String),
+
+    /// `--preset` named a preset that is not built in.
+    #[error("unknown preset '{name}' (available: {available})")]
+    UnknownPreset {
+        /// The name that was asked for.
+        name: String,
+        /// The built-in preset names, comma-separated.
+        available: String,
+    },
 }
