@@ -168,6 +168,43 @@ fn upper_case_c_extensions_are_c() {
     assert!(moldy(&["--check", "up/B.H"]).status.success());
 }
 
+/// A `.h` or `.H` header whose content can only be C++ is formatted as C++,
+/// like the same text in a `.hpp`; a header in C stays C, like a `.c`.
+#[test]
+fn headers_are_formatted_in_the_language_of_their_content() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("toolchain.toml"), "").unwrap();
+    let cpp = "namespace ns {\nint twice(int a){return a*2;}\n}\n";
+    let c = "int twice(int a){return a*2;}\nstruct s{int x;};\n";
+    for (name, source) in [
+        ("d.h", cpp),
+        ("D.H", cpp),
+        ("ref.hpp", cpp),
+        ("b.h", c),
+        ("B.H", c),
+        ("ref.c", c),
+    ] {
+        fs::write(dir.path().join(name), source).unwrap();
+    }
+    let format = |name: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .arg(name)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{name}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    let as_cpp = format("ref.hpp");
+    assert!(as_cpp.starts_with("namespace ns\n{\n"), "{as_cpp}");
+    assert_eq!(format("d.h"), as_cpp);
+    assert_eq!(format("D.H"), as_cpp);
+    let as_c = format("ref.c");
+    assert_eq!(format("b.h"), as_c);
+    assert_eq!(format("B.H"), as_c);
+}
+
 #[test]
 fn explicit_c_header_is_formatted() {
     let dir = tempfile::tempdir().unwrap();

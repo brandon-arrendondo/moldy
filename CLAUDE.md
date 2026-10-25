@@ -125,7 +125,8 @@ provides grammars, including `markdown_inline`; `language_for_file` serves tree
 dumping; `PathIgnore` serves path matching; `markdown::ContentMap` strips
 Markdown container prefixes. Recursive discovery uses `is_discoverable_file`,
 which matches extensions and file names such as `CMakeLists.txt` and skips
-`.h`. Explicit `.h` files use C, with no content sniffing. Do not duplicate
+`.h`. An explicit `.h` uses C unless `language_for_header_content` finds
+C++-only syntax, then C++. Do not duplicate
 extension or file-name lists in production code. Logic another substrate
 consumer could use (document structure, language facts) belongs in the
 substrate; layout policy stays in Moldy.

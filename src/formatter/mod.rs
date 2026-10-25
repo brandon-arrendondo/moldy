@@ -43,8 +43,13 @@ pub fn format_source_with_line_endings(
     let info = lang_parsing_substrate::language_info_for_file(path)
         .ok_or_else(|| MoldyError::UnsupportedLanguage(path.display().to_string()))?;
 
-    let formatted = match info.key {
-        "c" | "cpp" => c_cpp::format(source, info.key, config),
+    let key = match info.key {
+        "c" if header_is_cpp(path, source) => "cpp",
+        key => key,
+    };
+
+    let formatted = match key {
+        "c" | "cpp" => c_cpp::format(source, key, config),
         "rust" => rust::format(source, config),
         "python" => python::format(source, config),
         "json" => json::format(source, config),
@@ -55,6 +60,13 @@ pub fn format_source_with_line_endings(
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
     }?;
     Ok(line_endings::restore(source, &formatted, policy))
+}
+
+/// Whether `path` is a `.h` header whose content can only be C++, by the
+/// substrate's sniffing. Other files keep the language of their extension.
+fn header_is_cpp(path: &Path, source: &str) -> bool {
+    lang_parsing_substrate::language_for_header_content(path, source.as_bytes())
+        == lang_parsing_substrate::language_for_key("cpp")
 }
 
 /// `text` without trailing ASCII whitespace, keeping a character escaped
@@ -148,7 +160,7 @@ fn syntax_error(language: &str, root: tree_sitter::Node) -> MoldyError {
 /// Print the tree-sitter CST to stdout (debug aid, analogous to funky's
 /// --dump-tokens).
 pub fn dump_tree(path: &Path, source: &str) -> Result<(), MoldyError> {
-    let ts_lang = lang_parsing_substrate::language_for_file(path)
+    let ts_lang = lang_parsing_substrate::language_for_header_content(path, source.as_bytes())
         .ok_or_else(|| MoldyError::UnsupportedLanguage(path.display().to_string()))?;
 
     let mut parser = tree_sitter::Parser::new();

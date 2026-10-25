@@ -36,7 +36,7 @@ moldy --preset black example.py
 moldy --dump-tree src/foo.c
 ```
 
-Use filenames with recognized extensions, or `CMakeLists.txt`. To format stdin, pass `-` and name the file it stands for with `--stdin-filename`. Recursive discovery skips `.h`; pass C headers explicitly. `.hpp` and `.hxx` use C++ and are discovered recursively. See [usage](docs/usage.md) for all options, extensions, exit behavior, and limitations.
+Use filenames with recognized extensions, or `CMakeLists.txt`. To format stdin, pass `-` and name the file it stands for with `--stdin-filename`. Recursive discovery skips `.h`; pass headers explicitly. A `.h` is formatted as C++ when its content can only be C++, and as C otherwise. `.hpp` and `.hxx` use C++ and are discovered recursively. See [usage](docs/usage.md) for all options, extensions, exit behavior, and limitations.
 
 ## Configuration
 

@@ -18,6 +18,10 @@ What changed for users of Moldy, newest release first. See
 - Library: `MoldyError` is now `#[non_exhaustive]` and has a new variant,
   `UnknownPreset`. Both break a `match` on it that lists every variant;
   add a wildcard arm. Later variants will not break such a match again.
+- A `.h` or `.H` header whose content can only be C++, such as one holding
+  a namespace, class or template, is formatted as C++, as knots and
+  aurora-lint already read it. Before, every `.h` was formatted as C, which
+  laid out C++ headers by C rules. A header written in C is unchanged.
 
 ### Fixed
 

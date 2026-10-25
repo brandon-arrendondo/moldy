@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**A header was skipped.** Recursive selection uses `is_discoverable_file`, which excludes `.h`. Pass the header explicitly. `.h` selects C; C++ headers need a C++ extension such as `.hpp`.
+**A header was skipped.** Recursive selection uses `is_discoverable_file`, which excludes `.h`. Pass the header explicitly. A `.h` with C++-only syntax is formatted as C++, and any other `.h` as C.
 
 **A directory produced no output or passed `--check`.** Supply `--recursive`. A successful empty selection does not verify any files; check extensions and ignore patterns.
 
