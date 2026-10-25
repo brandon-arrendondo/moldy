@@ -88,6 +88,45 @@ fn is_misread_prefix_range(node: Node) -> bool {
     })
 }
 
+/// tree-sitter-rust reads the trailing comma of closure parameters
+/// (`|a, b,| a + b`) as starting an or-pattern `| a + b ...`, which runs on
+/// into the code that follows. The statement holding it is kept as written.
+/// Nested blocks are statements of their own and are checked separately.
+fn has_misread_closure_comma(node: Node) -> bool {
+    if node.kind() == "or_pattern"
+        && node.child(0).is_some_and(|c| c.kind() == "|")
+        && node.prev_sibling().is_some_and(|p| p.kind() == ",")
+        && node
+            .parent()
+            .is_some_and(|p| matches!(p.kind(), "closure_parameters" | "ERROR"))
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let found = node.children(&mut cursor).any(|child| {
+        !matches!(child.kind(), "block" | "declaration_list" | "match_block")
+            && has_misread_closure_comma(child)
+    });
+    found
+}
+
+/// Whether an item in a sequence can be laid out on its own. Where the
+/// grammar could not read a whole file, its top level is an `ERROR` node
+/// whose children mix complete items with loose tokens; only the complete
+/// ones are laid out.
+fn is_whole_item(node: Node, in_error: bool) -> bool {
+    if has_misread_closure_comma(node) {
+        return false;
+    }
+    let kind = node.kind();
+    !in_error
+        || (node.is_named()
+            && (kind.ends_with("_item")
+                || kind.ends_with("_declaration")
+                || kind.ends_with("_statement")
+                || matches!(kind, "line_comment" | "block_comment")))
+}
+
 struct Fmt<'a> {
     src: &'a str,
     config: &'a Config,
@@ -150,17 +189,37 @@ impl<'a> Fmt<'a> {
     //    its own line, blank lines preserved from source"). ────────────────
 
     fn emit_item_sequence(&mut self, items: &[Node]) {
+        let in_error = items
+            .first()
+            .and_then(|n| n.parent())
+            .is_some_and(|p| p.kind() == "ERROR");
         let mut prev_end: Option<usize> = None;
-        for item in items {
+        let mut i = 0;
+        while i < items.len() {
+            let item = items[i];
             if let Some(pe) = prev_end {
                 let blanks = self.source_blanks(pe, item.start_byte());
                 self.emit_blank_lines(blanks);
             }
             self.ensure_nl();
             self.emit_indent();
-            self.emit_node(*item);
+            if is_whole_item(item, in_error) {
+                self.emit_node(item);
+                prev_end = Some(item.end_byte());
+                i += 1;
+            } else {
+                // Keep the item, and in an unread file the run of loose
+                // tokens around it, as written.
+                let mut j = i + 1;
+                while in_error && j < items.len() && !is_whole_item(items[j], in_error) {
+                    j += 1;
+                }
+                let end = items[j - 1].end_byte();
+                self.raw(self.src[item.start_byte()..end].trim_end_matches('\n'));
+                prev_end = Some(end);
+                i = j;
+            }
             self.nl();
-            prev_end = Some(item.end_byte());
         }
     }
 

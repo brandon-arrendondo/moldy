@@ -17,7 +17,10 @@ What changed for users of Moldy, newest release first. See
   A list that renders over several lines, such as parameters with
   attributes, is split on the first run, so a second run no longer changes
   it. A closure's parameters split one per line take no trailing comma,
-  which a second run read wrongly and broke.
+  which a second run read wrongly and broke. A statement whose closure
+  parameters end in a comma (`|a, b,| a + b`), which tree-sitter-rust cannot
+  read, is kept as written instead of being spread over several lines, and
+  so is the code after it that the misreading takes in.
 - Python: the last clause of an `if`/`elif`/`else` or a `try` with several
   `except` clauses keeps its indentation instead of moving to column 0,
   which broke the parse. A one-element tuple keeps its comma (`(x,)`), a
