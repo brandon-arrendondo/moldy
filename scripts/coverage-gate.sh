@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Coverage gate script — runs tests with coverage, produces lcov.info, enforces threshold.
 # Used by pre-commit hook and CI pipeline.
 #
@@ -7,8 +7,12 @@
 #
 # Output: lcov.info in project root (publishable as CI artifact)
 # Exit code: 0 if coverage >= threshold, 1 otherwise
+#
+# POSIX sh, so it runs where bash is not installed (FreeBSD base). Without
+# pipefail, a failed `cargo llvm-cov report` in a pipeline leaves COVERAGE
+# empty, which fails the gate below.
 
-set -euo pipefail
+set -eu
 
 THRESHOLD="${1:-75}"
 # Exclude untestable code: main.rs (CLI entry point)
@@ -19,8 +23,8 @@ echo "Running tests with coverage (threshold: ${THRESHOLD}%)..."
 echo "Excluding: ${EXCLUDE_REGEX}"
 echo ""
 
-cargo llvm-cov --lcov --output-path "${LCOV_OUT}" --ignore-filename-regex "${EXCLUDE_REGEX}" 2>&1
-test_exit=$?
+test_exit=0
+cargo llvm-cov --lcov --output-path "${LCOV_OUT}" --ignore-filename-regex "${EXCLUDE_REGEX}" 2>&1 || test_exit=$?
 
 if [ $test_exit -ne 0 ]; then
   echo ""
