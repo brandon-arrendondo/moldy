@@ -29,7 +29,7 @@ moldy [OPTIONS] <FILES>...
 moldy - --stdin-filename src/parser.rs < src/parser.rs
 ```
 
-The run ends like a run on one file, with the same exit statuses, and messages name `NAME`. A source the formatter declines is printed as read and exits 3. A `NAME` an ignore pattern covers selects nothing: the source is printed as read, and the run exits 3, or 0 with `--allow-empty`. Each of these is a usage error (exit 2): `-` without `--stdin-filename`, `--stdin-filename` without `-`, `-` beside another path, and `-` with `--in-place` or `--check`.
+The run ends like a run on one file, with the same exit statuses, and messages name `NAME`. A `NAME` whose extension or file name Moldy does not format exits 3 (`unsupported language`), as naming such a file does, and prints nothing. A source the formatter declines, or one that crashes it, is printed as read and exits 3. A `NAME` an ignore pattern covers selects nothing: the source is printed as read, and the run exits 3, or 0 with `--allow-empty`. Each of these is a usage error (exit 2): `-` without `--stdin-filename`, `--stdin-filename` without `-`, `-` beside another path, and `-` with `--in-place` or `--check`.
 
 ## Line endings
 
@@ -77,7 +77,7 @@ Directories require `--recursive`; a directory named without it stops the run be
 
 Inputs must be UTF-8, whether files or [standard input](#standard-input).
 
-Each selected file ends one of four ways: changed (it would be, or was, reformatted), unchanged, declined (the formatter left it unchanged on purpose; see [below](#json-yaml-markdown-cmake-and-bash)), or failed (it could not be read, is not UTF-8, is in an unsupported language, or could not be written). A file that declines or fails does not stop the run: Moldy names it on stderr, for example `a.yaml: not formatted (YAML syntax error at line 3)`, and goes on to the next file. `--check` names each file that would change (`a.c: would reformat`) and `--in-place` each file it rewrote (`a.c: reformatted`).
+Each selected file ends one of four ways: changed (it would be, or was, reformatted), unchanged, declined (the formatter left it unchanged on purpose; see [below](#json-yaml-markdown-cmake-and-bash)), or failed (it could not be read, is not UTF-8, is in an unsupported language, or could not be written). A file that declines or fails does not stop the run: Moldy names it on stderr, for example `a.yaml: not formatted (YAML syntax error at line 3)`, and goes on to the next file. Printing to stdout, a file the formatter declines, or one that crashes it (`internal error: ...`), is printed unchanged; a file that cannot be read, is not UTF-8 or is in an unsupported language prints nothing. `--check` names each file that would change (`a.c: would reformat`) and `--in-place` each file it rewrote (`a.c: reformatted`).
 
 Under `--check` and `--in-place`, a summary always ends stderr, for example `moldy: 12 files: 3 would be reformatted, 8 unchanged, 1 not formatted`. A run to stdout prints it only when the run is incomplete, so a single file piped through Moldy adds nothing to stderr. An incomplete run then says how many selected files were not formatted. Under `--in-place` it also says that the files it already reformatted stay rewritten: nothing is rolled back.
 

@@ -64,6 +64,16 @@ Recurse into directories, formatting all source files with recognised
 extensions and every CMakeLists.txt. C .h headers are explicit-only and skipped by recursive
 discovery; .hpp and .hxx select C++ and are discovered recursively.
 .TP
+.B \-\-allow\-empty
+Accept a run that selects no files: report it on standard error and exit
+with status 0 instead of 3.
+.TP
+.BI \-\-completion\-report " FILE"
+Write each selected file's outcome (changed, unchanged, declined or
+failed) and the counts to
+.I FILE
+as JSON, even when the run fails.
+.TP
 .BI \-c " FILE" "\fR,\fP " \-\-config " FILE"
 Load configuration from
 .I FILE
@@ -92,6 +102,10 @@ extension or file name chooses the language, and ignore patterns match it;
 it need not exist. A
 .I NAME
 an ignore pattern covers selects nothing, and the source is printed as read.
+A
+.I NAME
+whose extension Moldy does not format exits with status 3, as naming such
+a file does.
 \- without this option, this option without \-, \- beside another file,
 and \- with
 .B \-\-in\-place
@@ -186,25 +200,39 @@ patterns = ["vendor/**", "third_party/**", "*.pb.h"]
 .SH EXIT STATUS
 .TP
 .B 0
-Success (or, in
+Completed: every selected file was formatted, or
 .B \-\-check
-mode, no file would change).
+found nothing to change. Also an empty selection with
+.BR \-\-allow\-empty .
 .TP
 .B 1
-In
 .B \-\-check
-mode: one or more files would change.  Otherwise: a fatal error occurred.
+completed and found files that would be reformatted.
 .TP
 .B 2
-Command-line argument parsing failed.
+The run could not start: invalid arguments (including \- used without
+.B \-\-stdin\-filename
+or with
+.B \-\-in\-place
+or
+.BR \-\-check ),
+an unknown preset, a malformed configuration file, a named path that does
+not exist, or a directory named without
+.BR \-r .
+No file is touched.
+.TP
+.B 3
+Incomplete: a selected file could not be read, formatted or written, or
+was left unformatted on purpose, or no file was selected without
+.BR \-\-allow\-empty .
+It outranks 1.
 .SH LIMITATIONS
 The C, C++, Rust and Python formatters continue over syntax-error trees;
 successful formatting does not validate syntax or guarantee malformed source
 is unchanged. The JSON, YAML, Markdown, CMake and Bash formatters leave a
-file with any syntax error unchanged and print a warning; the warning does
-not change the exit status. An in-place
-error does not roll back files already written. A successful check with no
-selected files does not establish that any source was checked.
+file with any syntax error unchanged, name it on standard error as not
+formatted, and the run exits with status 3. An in-place
+error does not roll back files already written.
 .SH SEE ALSO
 .BR funky (1),
 .BR clang\-format (1),

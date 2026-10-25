@@ -15,13 +15,19 @@ What changed for users of Moldy, newest release first. See
 
 ### Changed
 
+- Library: `MoldyError` is now `#[non_exhaustive]` and has a new variant,
+  `UnknownPreset`. Both break a `match` on it that lists every variant;
+  add a wildcard arm. Later variants will not break such a match again.
+
+### Fixed
+
 - A crash inside the formatter now fails only the file it was formatting:
   the file is named as `a.rs: not formatted (internal error: ...)`, the
-  other files are still handled, and the run exits 3. Before, the crash
-  stopped the whole run with exit 101.
+  other files are still handled, and the run exits 3. Printing to stdout,
+  the file's text is printed unchanged, as for a file the formatter
+  declines. Before, the crash stopped the whole run with exit 101.
 - An unknown `--preset` is reported as `unknown preset 'NAME' (available:
-  ...)` instead of as an unsupported language. It still exits 2. Library
-  users see it as the new `MoldyError::UnknownPreset`.
+  ...)` instead of as an unsupported language. It still exits 2.
 
 ## [0.5.1] - 2026-10-25
 

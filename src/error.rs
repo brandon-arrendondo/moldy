@@ -3,6 +3,7 @@ use thiserror::Error;
 /// The error type returned across the crate: parsing, formatting, config,
 /// and I/O failures unified so callers have one `Result<_, MoldyError>`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum MoldyError {
     /// A source file failed to parse.
     #[error("parse error: {0}")]

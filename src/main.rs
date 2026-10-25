@@ -232,7 +232,12 @@ fn format_text(path: &Path, source: &str, cli: &Cli, config: &Config) -> (Status
             return (Status::Declined, Some(declined_reason(&err)));
         }
         Ok(Err(err)) => return (Status::Failed, Some(failure_reason(&err))),
-        Err(reason) => return (Status::Failed, Some(reason)),
+        Err(reason) => {
+            if mode(cli) == Mode::Stdout {
+                print!("{source}");
+            }
+            return (Status::Failed, Some(reason));
+        }
     };
     let changed = source != formatted;
     match mode(cli) {

@@ -398,7 +398,9 @@ fn moldy_stdin(dir: &Path, args: &[&str], input: &[u8]) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    // A usage error exits before reading stdin, so the write can meet a
+    // closed pipe; the exit status is what the test checks.
+    let _ = child.stdin.take().unwrap().write_all(input);
     child.wait_with_output().unwrap()
 }
 
@@ -427,6 +429,10 @@ fn standard_input_that_cannot_be_formatted_exits_3() {
     let output = moldy_stdin(dir.path(), &["-", "--stdin-filename", "a.c"], b"\xff\n");
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert!(stderr(&output).starts_with("a.c: not formatted (not valid UTF-8)"));
+
+    let output = moldy_stdin(dir.path(), &["-", "--stdin-filename", "a.txt"], b"text\n");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert!(stderr(&output).starts_with("a.txt: not formatted (unsupported language)"));
 }
 
 #[test]
