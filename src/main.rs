@@ -158,22 +158,23 @@ fn format_one(path: &Path, cli: &Cli, config: &Config) -> (Status, Option<String
         Ok(source) => source,
         Err(err) => return (Status::Failed, Some(failure_reason(&err))),
     };
-    let formatted =
-        match formatter::format_source_with_line_endings(path, &source, config, ending_policy(cli))
-        {
-            Ok(formatted) => formatted,
-            Err(
-                err @ (MoldyError::Syntax { .. }
-                | MoldyError::Unverified { .. }
-                | MoldyError::TooDeep { .. }),
-            ) => {
-                if mode(cli) == Mode::Stdout {
-                    print!("{source}");
-                }
-                return (Status::Declined, Some(declined_reason(&err)));
+    let formatted = match contain(|| {
+        formatter::format_source_with_line_endings(path, &source, config, ending_policy(cli))
+    }) {
+        Ok(Ok(formatted)) => formatted,
+        Ok(Err(
+            err @ (MoldyError::Syntax { .. }
+            | MoldyError::Unverified { .. }
+            | MoldyError::TooDeep { .. }),
+        )) => {
+            if mode(cli) == Mode::Stdout {
+                print!("{source}");
             }
-            Err(err) => return (Status::Failed, Some(failure_reason(&err))),
-        };
+            return (Status::Declined, Some(declined_reason(&err)));
+        }
+        Ok(Err(err)) => return (Status::Failed, Some(failure_reason(&err))),
+        Err(reason) => return (Status::Failed, Some(reason)),
+    };
     let changed = source != formatted;
     match mode(cli) {
         Mode::InPlace if changed => {
@@ -190,6 +191,34 @@ fn format_one(path: &Path, cli: &Cli, config: &Config) -> (Status, Option<String
         Status::Unchanged
     };
     (status, None)
+}
+
+/// The most panic text a failure reason carries, in characters.
+const PANIC_TEXT_LIMIT: usize = 200;
+
+/// Runs one file's `work`, turning a panic into that file's failure reason
+/// so the rest of the run survives it.
+fn contain<T>(work: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+        .map_err(|payload| panic_reason(payload.as_ref()))
+}
+
+fn panic_reason(payload: &(dyn std::any::Any + Send)) -> String {
+    let text = payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown cause".to_string());
+    format!("internal error: {}", truncated(&text, PANIC_TEXT_LIMIT))
+}
+
+/// `text` cut to at most `limit` characters, never inside one, with an
+/// ellipsis when cut.
+fn truncated(text: &str, limit: usize) -> String {
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
+    }
 }
 
 fn ending_policy(cli: &Cli) -> formatter::LineEndings {
@@ -360,6 +389,25 @@ fn should_ignore(path: &Path, ignore: &PathIgnore) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panic_fails_only_its_own_file() {
+        let reason = contain(|| -> u32 { panic!("boom") }).unwrap_err();
+        assert_eq!(reason, "internal error: boom");
+        let reason = contain(|| -> u32 { panic!("{}", String::from("owned")) }).unwrap_err();
+        assert_eq!(reason, "internal error: owned");
+        assert_eq!(contain(|| 7), Ok(7));
+    }
+
+    #[test]
+    fn a_long_panic_text_is_cut_on_a_character_boundary() {
+        let long = "é".repeat(PANIC_TEXT_LIMIT + 5);
+        let reason = contain(|| -> u32 { panic!("{long}") }).unwrap_err();
+        let text = reason.trim_start_matches("internal error: ");
+        assert_eq!(text.chars().count(), PANIC_TEXT_LIMIT + 1);
+        assert!(text.ends_with('…'));
+        assert_eq!(truncated("short", PANIC_TEXT_LIMIT), "short");
+    }
 
     #[test]
     fn discovery_matches_file_names_and_skips_explicit_only() {
