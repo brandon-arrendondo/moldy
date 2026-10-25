@@ -1,6 +1,7 @@
 # ADR-0007: Moldy checks that code reads the same; layout follows the reference tool
 
-**Status:** Proposed, 2026-10-24.
+**Status:** Accepted, 2026-10-25 (Brandon Arrendondo). Proposed
+2026-10-24. Implementation pending.
 
 ## Context
 

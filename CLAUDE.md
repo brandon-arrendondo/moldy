@@ -61,6 +61,13 @@ Bash `>#`), keep the affected text as written rather than reformat it.
 Verify
 malformed fixtures when changing emission.
 
+[ADR-0007](docs/adr/0007-correctness-is-checked-layout-is-policy.md) sets
+what a code formatter may change: the output keeps the input's tokens,
+comments and, in Python, block structure, while layout follows the
+reference tool. Its runtime check is not implemented yet; until it is,
+run an external check on real code (compile or parse the output, compare
+tokens, format twice) when changing C, C++, Rust or Python emission.
+
 ## C/C++ parity
 
 The related `../funky` checkout, when available, supplies the reference formatter
