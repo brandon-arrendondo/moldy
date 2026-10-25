@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-25
+
 ### Fixed
 
 - Rust: code after a `//` comment inside an expression, such as a method
@@ -160,7 +162,8 @@ assistance; see the README's AI Assistance section.
 Accountable reviewer: Brandon Arrendondo. Moldy is developed with AI
 assistance; see the README's AI Assistance section.
 
-[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.2.1...v0.3.0
