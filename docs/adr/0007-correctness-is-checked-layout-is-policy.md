@@ -18,10 +18,10 @@ lines end at the line break, and `#define F (x)` defines a different macro
 from `#define F(x)`. In Python, line breaks and indentation are syntax
 outside brackets and layout inside them.
 
-Moldy's Markdown and reStructuredText formatters already parse their output
-again and compare it with the input, and leave a file unchanged when the two
-differ. The C, C++, Rust and Python formatters do not; they continue over
-whatever they produce. A trial adoption on a real Rust and Python workspace
+Moldy's Markdown formatter already parses its output again and compares it
+with the input, and leaves a file unchanged when the two differ. The C,
+C++, Rust and Python formatters do not; they continue over whatever they
+produce. A trial adoption on a real Rust and Python workspace
 found output that no longer compiled or parsed: code after a line comment
 folded into the comment, and the last `else` or `except` of a compound
 statement moved to column 0. Run on 400 files of the Python standard
@@ -52,9 +52,9 @@ the same program as the input. For each language that means:
   line.
 - **Python:** the same tokens and comments, and the same block structure:
   every statement belongs to the same block as before.
-- **Markdown and reStructuredText:** as now, the same document shape, read
-  by the formatter's grammar and, for Markdown, by an independent CommonMark
-  reader ([ADR-0006](0006-layout-not-authored-style.md), guarantee 1).
+- **Markdown:** as now, the same document shape, read by the formatter's
+  grammar and by an independent CommonMark reader
+  ([ADR-0006](0006-layout-not-authored-style.md), guarantee 1).
 
 Moldy checks this on every run. It parses its output with the same grammar
 and compares the result with the input's. If they differ, or the output has
