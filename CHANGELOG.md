@@ -5,6 +5,24 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Changed
+
+- `[ignore].patterns` and `toolchain.toml` ignore paths match a file
+  extension in any case, as discovery has since 0.5.0: `*.c` also ignores
+  `A.C`, and `gen/*.h` ignores `gen/B.H`, so a Windows-built tree no longer
+  needs each pattern twice. Directory names and the rest of the file name
+  still match as written: `vendor/**` does not ignore `Vendor/x.c`.
+
+### Fixed
+
+- A C header that names a variable `new` or `delete`, as the Linux
+  `list.h` helpers do, or has a statement such as `a & b;`, is formatted as
+  C. Before, it was read as C++ and laid out wrongly (`new ->next`). One
+  C++ header is now read as C: one whose only C++ is a reference next to a
+  macro the parser cannot expand, such as `API_EXPORT int& counter();`,
+  which its C layout breaks apart. Give such a header a C++ extension
+  such as `.hpp`.
+
 ## [0.6.0] - 2026-10-26
 
 ### Added

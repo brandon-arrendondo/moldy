@@ -116,7 +116,7 @@ paths = ["vendor/**", "generated/**"]
 
 Those patterns are appended to `[ignore].patterns` from Moldy's config or preset. Other shared sections, including language-specific settings, are ignored. Invalid TOML or invalid ignore patterns fail the command.
 
-Matching uses the substrate's `PathIgnore` against the candidate path, then against its bare filename. Thus `*.pb.h` works at any depth. Patterns are case-sensitive, although extensions are not: `*.c` does not ignore `A.C`, so list both cases or use a directory pattern. Paths are not rebased to the directory containing `toolchain.toml`; run from the project root and use relative input paths for patterns such as `vendor/**`. Ignored directories are not pruned during traversal: their files are filtered after discovery.
+Matching uses the substrate's `PathIgnore` against the candidate path, then against its bare filename. Thus `*.pb.h` works at any depth. A pattern's file extension matches in any case, as discovery's extensions do: `*.c` also ignores `A.C`, and `gen/*.h` ignores `gen/B.H`. Only the extension folds. Directory names and the rest of the file name match as written, so `vendor/**` does not ignore `Vendor/x.c` and `*.pb.c` does not ignore `MSG.PB.C`. An extension written with glob syntax, such as `*.{c,h}` or `*.[ch]`, matches as written. Paths are not rebased to the directory containing `toolchain.toml`; run from the project root and use relative input paths for patterns such as `vendor/**`. Ignored directories are not pruned during traversal: their files are filtered after discovery.
 
 Output line endings are preserved by default. The legacy `[newlines].style`
 key remains parsed for compatibility but does not select output endings.

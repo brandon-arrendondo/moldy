@@ -258,11 +258,9 @@ fn a_header_dumps_the_tree_of_its_content_language() {
     assert_ne!(header, dump("a.c"));
 }
 
-/// A C header with a variable named `new` is C, but the substrate's content
-/// check reads its `new->next` as a C++ new-expression and formats it as
-/// `new ->next`. Enable once the substrate in use reads such a header as C.
+/// A C header with a variable named `new` is C. Read as C++, its
+/// `new->next` would be a new-expression, formatted as `new ->next`.
 #[test]
-#[ignore = "the substrate's header check reads this C header as C++"]
 fn a_c_header_with_a_variable_named_new_stays_c() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("toolchain.toml"), "").unwrap();
@@ -326,5 +324,74 @@ fn shared_and_formatter_ignores_apply_to_explicit_inputs() {
         String::from_utf8(output.stderr).unwrap(),
         "selected.c: would reformat\n\
          moldy: 1 file: 1 would be reformatted, 0 unchanged, 0 not formatted\n"
+    );
+}
+
+/// A Windows-built tree names files `A.C` and `B.H`. An ignore pattern's
+/// extension matches in any case, as discovery's does, from both moldy.toml
+/// and toolchain.toml; directory names and the rest of the name still match
+/// as written.
+#[test]
+fn ignore_patterns_match_extensions_in_any_case_and_directories_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("toolchain.toml"),
+        "[ignore]\npaths = [\"gen/*.h\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("moldy.toml"),
+        "[ignore]\npatterns = [\"*.pb.c\", \"vendor/**\"]\n",
+    )
+    .unwrap();
+    let unformatted = "int foo(){return 0;}";
+    for name in [
+        "src/A.C",
+        "src/MSG.PB.C",
+        "src/msg.pb.C",
+        "gen/B.H",
+        "Gen/C.H",
+        "vendor/v.c",
+        "Vendor/V.C",
+    ] {
+        let path = dir.path().join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, unformatted).unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
+        .current_dir(dir.path())
+        .args([
+            "--check",
+            "--recursive",
+            "src",
+            "vendor",
+            "Vendor",
+            "gen/B.H",
+            "Gen/C.H",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let mut stderr: Vec<_> = String::from_utf8(output.stderr)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let summary = stderr.pop().unwrap();
+    stderr.sort();
+    // `*.pb.c` folds only its extension: `MSG.PB.C` keeps its uppercase
+    // `PB`, which does not match `pb`.
+    assert_eq!(
+        stderr,
+        [
+            "Gen/C.H: would reformat",
+            "Vendor/V.C: would reformat",
+            "src/A.C: would reformat",
+            "src/MSG.PB.C: would reformat",
+        ]
+    );
+    assert_eq!(
+        summary,
+        "moldy: 4 files: 4 would be reformatted, 0 unchanged, 0 not formatted"
     );
 }

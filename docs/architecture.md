@@ -2,12 +2,12 @@
 
 Moldy owns formatting policy. `lang-parsing-substrate` owns the language registry, tree-sitter grammar access, extension and file-name predicates, Markdown container prefixes, and the `PathIgnore` glob matcher used for file selection. Every grammar, including the Markdown inline grammar, comes through substrate features; Moldy depends directly only on the `tree-sitter` runtime crate, which Cargo shares with the substrate.
 
-Moldy uses `lang-parsing-substrate` 0.12.0. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, `lang-python`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-cmake`, and `lang-bash`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
+Moldy uses `lang-parsing-substrate` 0.14.0. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, `lang-python`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-cmake`, and `lang-bash`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
 
 ## Processing pipeline
 
 1. The CLI loads a preset or Moldy config and appends shared ignore paths.
-2. Directory walks select files with `is_discoverable_file`, which matches registry extensions and file names such as `CMakeLists.txt`. Explicit paths bypass that predicate. Both routes apply `PathIgnore`.
+2. Directory walks select files with `is_discoverable_file`, which matches registry extensions and file names such as `CMakeLists.txt`. Explicit paths bypass that predicate. Both routes apply `PathIgnore`, built with `with_extension_case_folded` so a pattern's extension matches in any case.
 3. Files are read as UTF-8. `format_source` obtains `language_info_for_file` and dispatches on its canonical key.
 4. Each formatter obtains its grammar through `language_for_key` and creates a tree-sitter parser. The debug `dump_tree` route uses `language_for_file`.
 5. Formatters emit text under `Config`. The CLI prints, compares, or writes it.
@@ -24,7 +24,7 @@ Tree-sitter nodes retain byte offsets into the original source. Text is sliced u
 
 Substrate dead-code blanking, call extraction, metrics, control-flow graphs, and fingerprints are analysis facilities and are not part of Moldy's formatting path. Blanking source before emission would discard text a formatter must preserve, including preprocessor-controlled code. Parser trees and source slices must refer to the same text.
 
-`src/toolchain.rs` models the shared ignore subset of `toolchain.toml` and discovers it from the working directory. Substrate 0.12.0 exports the glob matcher but does not export a shared configuration loader, so discovery and TOML deserialization remain in Moldy. This module does not locate or invoke external formatters.
+`src/toolchain.rs` models the shared ignore subset of `toolchain.toml` and discovers it from the working directory. Substrate 0.14.0 exports the glob matcher but does not export a shared configuration loader, so discovery and TOML deserialization remain in Moldy. This module does not locate or invoke external formatters.
 
 ## Public library
 

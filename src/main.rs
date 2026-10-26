@@ -202,7 +202,7 @@ fn mode(cli: &Cli) -> Mode {
 fn load_run_config(cli: &Cli) -> anyhow::Result<(Config, PathIgnore)> {
     let mut config = load_config(cli.config.as_deref(), cli.preset.as_deref())?;
     merge_toolchain_ignores(&mut config)?;
-    let ignore = PathIgnore::new(&config.ignore.patterns)?;
+    let ignore = PathIgnore::with_extension_case_folded(&config.ignore.patterns)?;
     Ok((config, ignore))
 }
 

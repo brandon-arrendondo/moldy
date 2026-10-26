@@ -63,7 +63,7 @@ Each reference test lists the fixtures that knowingly differ (for example `prett
 Update the manifest and lockfile together. Keep default features disabled and enable only implemented formatters. Prefer a targeted dependency update:
 
 ```sh
-cargo update -p lang-parsing-substrate --precise 0.12.0
+cargo update -p lang-parsing-substrate --precise 0.14.0
 ```
 
 Inspect grammar and tree-sitter version changes. Build the old and new versions, format the same pinned inputs with identical presets, and compare stdout, stderr, and exit status. Include malformed acceptance inputs and recursive selection; expected-file tests alone do not establish that all previous behavior is unchanged. Re-run required checks and public API documentation checks.
