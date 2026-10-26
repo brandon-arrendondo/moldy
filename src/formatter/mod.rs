@@ -72,17 +72,23 @@ pub fn format_source_with_line_endings(
 fn token_edits(key: &str, config: &Config) -> Option<(&'static str, verify::Edits)> {
     let braces = &config.braces;
     let edits = match key {
-        "c" | "cpp"
-            if braces.add_braces_to_if
-                || braces.add_braces_to_while
-                || braces.add_braces_to_for =>
-        {
+        // A body may be given braces where its option says so.
+        "c" | "cpp" => {
+            let mut braced_bodies = Vec::new();
+            if braces.add_braces_to_if {
+                braced_bodies.extend(["if_statement", "else_clause"]);
+            }
+            if braces.add_braces_to_while {
+                braced_bodies.push("while_statement");
+            }
+            if braces.add_braces_to_for {
+                braced_bodies.extend(["for_statement", "for_range_loop"]);
+            }
             verify::Edits {
-                insert: &["{", "}"],
+                braced_bodies,
                 ..verify::Edits::NONE
             }
         }
-        "c" | "cpp" => verify::Edits::NONE,
         "rust" => verify::Edits {
             trailing_commas: true,
             ..verify::Edits::NONE

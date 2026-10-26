@@ -20,6 +20,6 @@
 
 **A recursive run now changes Markdown, YAML or JSON files.** Recursive discovery selects every formatted language. Add `[ignore].patterns` entries, such as `"docs/**"` or `"*.json"`, for files Moldy should leave alone.
 
-**Part of a file was not laid out.** The C, C++, Rust and Python formatters keep a statement that holds a syntax error as written, and format the rest of the file around it. Use `--dump-tree` and look for `ERROR` or `MISSING` nodes. Formatting success does not establish valid syntax.
+**Part of a file was not laid out.** The C, C++, Rust and Python formatters keep a statement that holds a syntax error as written, and format the rest of the file around it. C and C++ code inside a preprocessor conditional (`#if`, `#ifdef`, `#ifndef`, including an include guard) is always kept as written, apart from trailing-comment alignment. Use `--dump-tree` and look for `ERROR` or `MISSING` nodes. Formatting success does not establish valid syntax.
 
 **An in-place run stopped halfway through.** A fatal error terminates processing without rolling back earlier writes. Review the diff and fix the failing file/config before rerunning.

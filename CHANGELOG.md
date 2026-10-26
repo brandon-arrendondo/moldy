@@ -8,22 +8,32 @@ What changed for users of Moldy, newest release first. See
 ### Fixed
 
 - The C, C++, Rust and Python formatters no longer change code. A
-  statement the parser cannot read is kept as written, with the rest of
-  the file formatted around it. Before, Moldy added the token the parser
-  assumed was missing (`return 1` gained a `;`, Python's `def f(:` a
-  `)`), split a declaration after an unexpanded macro
-  (`EXPORT struct widget *make(void);` became `EXPORT struct;` and
-  `widget *make(void);`), or joined tokens (`#define REG 0` became
-  `#defineREG0`). Every run now also parses the output again and compares
+  statement the parser cannot read is kept as written, and the rest of
+  the file is formatted around it (code inside a preprocessor
+  conditional, such as an include guard, is kept as written in any
+  case). Before, Moldy added the token the parser assumed was missing
+  (`return 1` gained a `;`, Python's `def f(:` a `)`), split a
+  declaration after an unexpanded macro (`EXPORT struct widget
+  *make(void);` became `EXPORT struct;` and `widget *make(void);`), or
+  joined tokens (`#define REG 0` became `#defineREG0`). Every run now also parses the output again and compares
   its tokens, comments and line structure with the input's. A file whose
   code would change is left unchanged and reported, for example
   `a.c: not formatted (C could not be formatted without changing its
   meaning (line 12))`, and the run exits 3. See the usage guide for what
-  is compared and the edits formatting may make.
+  is compared and the edits formatting may make. The check makes these
+  formatters about three times slower. Some files 0.6.0
+  formatted are now declined because their output changed code, so
+  `--check` reports them: a function that declares a `struct` (0.6.0 gave
+  it a second `;`), and a comment on the line after a top-level `#define`
+  or `#pragma` (0.6.0 moved it onto the directive line).
 - C and C++: a comment between `if (...)`, `else`, `for (...)`, `while
   (...)` or `do` and its body no longer deletes the body:
   `if (a) /* why */ return 0;` lost its `return 0;`. The comment now
   opens the body.
+- C and C++: text inside a block comment is no longer aligned as if it
+  were code. A `//` in a URL was taken for a trailing comment (`http://`
+  became `http:   //`), and the `=` of `name = value` lines in a comment
+  was aligned as in an enum.
 - C and C++: text inside a string literal is no longer spaced: `"true"`
   became `" true "`.
 - Rust: a one-element tuple keeps its comma. `(5,)` and `(u8,)` became

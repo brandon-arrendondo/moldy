@@ -5,15 +5,19 @@
 // file whose tokens differ is declined. The only token edits allowed are
 // the ones a formatting option makes, listed in `Edits`.
 
-use similar::{capture_diff_slices_deadline, Algorithm, DiffOp};
-use std::time::{Duration, Instant};
+use std::borrow::Cow;
+use std::collections::HashMap;
 use tree_sitter::Node;
 
 use crate::error::MoldyError;
 
-/// The tokens a formatter may insert or delete, by the grammar's kind.
+/// The token edits a formatter may make.
 pub(super) struct Edits {
-    pub insert: &'static [&'static str],
+    /// The control statements, by the grammar's kind, whose body may be
+    /// given braces: `{` and `}` around exactly the one statement that
+    /// was the body.
+    pub braced_bodies: Vec<&'static str>,
+    /// The tokens that may be deleted, by kind.
     pub delete: &'static [&'static str],
     /// Whether a trailing comma that changes nothing may be added or
     /// removed; see `is_optional_comma`.
@@ -22,7 +26,7 @@ pub(super) struct Edits {
 
 impl Edits {
     pub const NONE: Edits = Edits {
-        insert: &[],
+        braced_bodies: Vec::new(),
         delete: &[],
         trailing_commas: false,
     };
@@ -37,16 +41,13 @@ const DEDENT: &str = " dedent";
 /// A Python line that dedents to no enclosing indentation.
 const MISALIGNED: &str = " misaligned";
 
-/// How long the token diff may run before it settles for a coarser one.
-/// A coarser diff can only decline more files, never fewer.
-const DIFF_DEADLINE: Duration = Duration::from_secs(2);
-
 /// `MoldyError::Unverified` unless `output` has the tokens of `source`,
 /// apart from the `edits` allowed, and has no syntax error unless `source`
 /// has one. Both are parsed with `language_key`'s grammar; tokens the
 /// parser invented to recover from an error (zero width) are not part of
 /// either text and are ignored. Comments may move past code but must stay
-/// in order.
+/// in order, except Rust doc comments, which are compared in place, and a
+/// Python file's shebang or encoding line, which stays on its line.
 pub(super) fn check_tokens(
     language: &str,
     language_key: &str,
@@ -70,76 +71,131 @@ pub(super) fn check_tokens(
         "python" => Layout::Indented,
         _ => Layout::Free,
     };
+    let braces = !edits.braced_bodies.is_empty();
     let source_tree = parse(source)?;
     let output_tree = parse(output)?;
-    let (mut before, before_comments) = tokens(source_tree.root_node(), source, layout);
-    let (mut after, after_comments) = tokens(output_tree.root_node(), output, layout);
+    let mut before = tokens(source_tree.root_node(), source, layout, braces);
+    let mut after = tokens(output_tree.root_node(), output, layout, braces);
     // A comma that changes nothing may come or go, so it is not compared.
     // Each side's own tree says which commas those are.
     if edits.trailing_commas {
-        before.retain(|t| !t.optional_comma);
-        after.retain(|t| !t.optional_comma);
+        before.code.retain(|t| !t.optional_comma);
+        after.code.retain(|t| !t.optional_comma);
     }
     let unverified = |row: usize| MoldyError::Unverified {
         language: language.to_string(),
         line: row + 1,
     };
 
-    let moved = (0..before_comments.len().max(after_comments.len())).find(|&i| {
-        before_comments.get(i).map(|t| &t.text) != after_comments.get(i).map(|t| &t.text)
+    let moved = (0..before.comments.len().max(after.comments.len())).find(|&i| {
+        before.comments.get(i).map(|t| &t.text) != after.comments.get(i).map(|t| &t.text)
     });
     if let Some(i) = moved {
-        return Err(unverified(row_at(&before_comments, i)));
+        return Err(unverified(row_at(&before.comments, i)));
     }
-
-    let old: Vec<&str> = before.iter().map(|t| t.text.as_str()).collect();
-    let new: Vec<&str> = after.iter().map(|t| t.text.as_str()).collect();
-    let deadline = Instant::now() + DIFF_DEADLINE;
-    for op in capture_diff_slices_deadline(Algorithm::Myers, &old, &new, Some(deadline)) {
-        let (old_index, deleted, inserted) = match op {
-            DiffOp::Equal { .. } => continue,
-            DiffOp::Delete {
-                old_index, old_len, ..
-            } => (
-                old_index,
-                &before[old_index..old_index + old_len],
-                &after[..0],
-            ),
-            DiffOp::Insert {
-                old_index,
-                new_index,
-                new_len,
-            } => (
-                old_index,
-                &before[..0],
-                &after[new_index..new_index + new_len],
-            ),
-            DiffOp::Replace {
-                old_index,
-                old_len,
-                new_index,
-                new_len,
-            } => (
-                old_index,
-                &before[old_index..old_index + old_len],
-                &after[new_index..new_index + new_len],
-            ),
-        };
-        let allowed = deleted.iter().all(|t| edits.delete.contains(&t.kind))
-            && inserted.iter().all(|t| edits.insert.contains(&t.kind));
-        if !allowed {
-            return Err(unverified(row_at(&before, old_index)));
+    if layout == Layout::Indented {
+        if let Some(row) = moved_header_line(&before, &after) {
+            return Err(unverified(row));
         }
+    }
+    if let Some(i) = align(&before, &after, edits) {
+        return Err(unverified(row_at(&before.code, i)));
     }
     // The same tokens can still read differently, if the output breaks
     // them into lines the grammar cannot read. The input token at the
     // index of the output's first token past the error is near it.
     if !source_tree.root_node().has_error() && output_tree.root_node().has_error() {
         let error_row = first_error_row(output_tree.root_node());
-        let i = after.iter().position(|t| t.row >= error_row);
-        return Err(unverified(row_at(&before, i.unwrap_or(before.len()))));
+        let i = after.code.iter().position(|t| t.row >= error_row);
+        return Err(unverified(row_at(
+            &before.code,
+            i.unwrap_or(before.code.len()),
+        )));
     }
     Ok(())
+}
+
+/// Matches `after`'s code tokens to `before`'s, in one pass: each output
+/// token must be the next input token, a brace `edits` allows, or follow
+/// input tokens `edits` allows to be deleted. Returns the index of the
+/// input token where they part, or `None` if they match.
+///
+/// One pass decides it exactly. A brace is added only where an input
+/// body starts, which no input brace can, and closed by the brace of the
+/// same block, which must come right after the body's last token; a
+/// deleted token is skipped only where the texts differ, and output
+/// tokens are never deleted nor input tokens inserted.
+fn align(before: &Tokens, after: &Tokens, edits: &Edits) -> Option<usize> {
+    let (old, new) = (&before.code, &after.code);
+    // The input tokens since the last match: the end of the body that
+    // each open added brace holds, and the block that will close it.
+    let mut added: Vec<(usize, usize)> = Vec::new();
+    let mut last_seq = usize::MAX;
+    let (mut i, mut j) = (0, 0);
+    while i < old.len() || j < new.len() {
+        let (b, a) = (old.get(i), new.get(j));
+        if let Some(a) = a {
+            let block = a
+                .block
+                .filter(|(_, control)| edits.braced_bodies.contains(control));
+            if let Some((id, control)) = block {
+                if let Some(&(end, open)) = added.last().filter(|_| a.text == "}") {
+                    if open == id {
+                        if last_seq != end {
+                            return Some(i);
+                        }
+                        added.pop();
+                        j += 1;
+                        continue;
+                    }
+                }
+                let body = b.and_then(|b| before.bodies.get(&b.seq));
+                if a.text == "{" && b.is_some_and(|b| b.text != "{") {
+                    match body.and_then(|bodies| bodies.iter().find(|(_, c)| *c == control)) {
+                        Some(&(end, _)) => {
+                            added.push((end, id));
+                            j += 1;
+                            continue;
+                        }
+                        None => return Some(i),
+                    }
+                }
+            }
+        }
+        match (b, a) {
+            (Some(b), Some(a)) if b.text == a.text => {
+                last_seq = b.seq;
+                i += 1;
+                j += 1;
+            }
+            (Some(b), _) if edits.delete.contains(&b.kind) => i += 1,
+            _ => return Some(i),
+        }
+    }
+    if added.is_empty() {
+        None
+    } else {
+        Some(i)
+    }
+}
+
+/// The row of a Python shebang or encoding line that the output moves,
+/// or code the output puts before it. Python reads them only on the
+/// first two lines, with no code before them.
+fn moved_header_line(before: &Tokens, after: &Tokens) -> Option<usize> {
+    let code_by = |tokens: &Tokens, row: usize| tokens.code.first().is_some_and(|t| t.row <= row);
+    before
+        .comments
+        .iter()
+        .zip(&after.comments)
+        .take_while(|(b, _)| b.row <= 1 && !code_by(before, b.row))
+        .find(|(b, a)| {
+            let header = (b.row == 0 && b.text.starts_with("#!"))
+                || b.text.contains("coding:")
+                || b.text.contains("coding=");
+            header && (a.row != b.row || code_by(after, a.row))
+        })
+        .map(|(b, _)| b.row)
 }
 
 /// The row of the first `ERROR` or `MISSING` node under `root`.
@@ -166,7 +222,7 @@ fn row_at(tokens: &[Token], i: usize) -> usize {
 }
 
 /// Where a line break is part of the code.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Layout {
     /// Nowhere (Rust).
     Free,
@@ -176,91 +232,214 @@ enum Layout {
     Indented,
 }
 
-struct Token {
-    text: String,
+struct Token<'a> {
+    text: Cow<'a, str>,
     /// The grammar's kind for a leaf, which tells a bracket from the same
     /// text in a string; empty for other tokens.
     kind: &'static str,
     row: usize,
     col: usize,
     end_row: usize,
+    /// The token's place among the text's tokens, before layout tokens
+    /// are added (`usize::MAX` for those).
+    seq: usize,
     /// A trailing comma that changes nothing; see `Edits::trailing_commas`.
     optional_comma: bool,
     /// A Python `:` that a block follows.
     opens_block: bool,
+    /// For a brace of a block that is a control statement's body, the
+    /// block's id and the control statement's kind.
+    block: Option<(usize, &'static str)>,
 }
 
-/// The code tokens of the tree at `root`, in order, and its comments.
-/// Code tokens are its leaves, a preprocessor directive's text split into
-/// words, any text no leaf covers, split at whitespace, and the line
-/// structure `layout` gives. Whitespace inside a comment, and carriage
-/// returns, are not compared.
-fn tokens(root: Node, source: &str, layout: Layout) -> (Vec<Token>, Vec<Token>) {
-    let mut code = Vec::new();
-    let mut comments = Vec::new();
-    push_tokens(root, source, &mut code, &mut comments);
-    let code = match layout {
-        Layout::Free => code,
-        Layout::Directives => mark_directive_ends(code, source),
-        Layout::Indented => mark_logical_lines(code),
+struct Tokens<'a> {
+    code: Vec<Token<'a>>,
+    comments: Vec<Token<'a>>,
+    /// The control statement bodies not in braces, by the `seq` of their
+    /// first token: the `seq` of their last, and the control's kind.
+    bodies: HashMap<usize, Vec<(usize, &'static str)>>,
+}
+
+/// The tokens of the tree at `root`. Code tokens are its leaves, a
+/// preprocessor directive's text split into words, any text no leaf
+/// covers, split at whitespace, Rust doc comments, and the line
+/// structure `layout` gives. Comments are compared with their runs of
+/// whitespace made one space, and carriage returns are not compared.
+/// With `braces`, the bodies that could be given braces are found.
+fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Tokens<'a> {
+    let mut walk = Walk {
+        source,
+        braces,
+        out: Tokens {
+            code: Vec::new(),
+            comments: Vec::new(),
+            bodies: HashMap::new(),
+        },
     };
-    (code, comments)
+    walk.push_tokens(root, &Place::default());
+    let mut out = walk.out;
+    out.code = match layout {
+        Layout::Free => out.code,
+        Layout::Directives => mark_directive_ends(out.code, source),
+        Layout::Indented => mark_logical_lines(out.code),
+    };
+    out
 }
 
-fn push_tokens(node: Node, source: &str, out: &mut Vec<Token>, comments: &mut Vec<Token>) {
-    if node.start_byte() == node.end_byte() {
-        return;
+/// Where a node is in its tree. Asking tree-sitter for a node's parent or
+/// next sibling walks down from the root, so the walk carries them.
+#[derive(Default)]
+struct Place<'t, 'n> {
+    parent: Option<Node<'t>>,
+    grandparent: Option<Node<'t>>,
+    /// The siblings after the node.
+    next: &'n [Node<'t>],
+    /// Whether the node is in a macro definition or a macro's tokens.
+    in_macro: bool,
+}
+
+struct Walk<'a> {
+    source: &'a str,
+    braces: bool,
+    out: Tokens<'a>,
+}
+
+impl<'a> Walk<'a> {
+    fn push(&mut self, mut token: Token<'a>) {
+        token.seq = self.out.code.len();
+        self.out.code.push(token);
     }
-    let start = node.start_position();
-    if node.kind().ends_with("comment") {
-        let text = source[node.byte_range()]
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        comments.push(token(text, start, node.end_position().row));
-        return;
-    }
-    if is_literal(node.kind()) {
-        let text = source[node.byte_range()].replace('\r', "");
-        out.push(token(text, start, node.end_position().row));
-        return;
-    }
-    if node.kind() == "preproc_arg" {
-        push_words(&source[node.byte_range()], start.row, out);
-        return;
-    }
-    if node.child_count() == 0 {
-        let text = source[node.byte_range()].replace('\r', "");
-        if !text.trim().is_empty() {
-            let mut leaf = token(text, start, node.end_position().row);
-            leaf.kind = node.kind();
-            leaf.optional_comma = is_optional_comma(node);
-            leaf.opens_block =
-                node.kind() == ":" && node.next_sibling().is_some_and(|n| n.kind() == "block");
-            out.push(leaf);
+
+    fn push_tokens(&mut self, node: Node, place: &Place) {
+        if node.start_byte() == node.end_byte() {
+            return;
         }
-        return;
+        let source = self.source;
+        let kind = node.kind();
+        let start = node.start_position();
+        let end_row = node.end_position().row;
+        let text = &source[node.byte_range()];
+        if kind.ends_with("comment") {
+            if is_doc_comment(node) {
+                let mut doc = token(
+                    without_cr(text.trim_end_matches(['\r', '\n'])),
+                    start,
+                    end_row,
+                );
+                doc.kind = "doc_comment";
+                self.push(doc);
+            } else {
+                let words: Vec<&str> = text.split_whitespace().collect();
+                let comment = token(Cow::Owned(words.join(" ")), start, end_row);
+                self.out.comments.push(comment);
+            }
+            return;
+        }
+        if is_literal(kind) {
+            self.push(token(without_cr(text), start, end_row));
+            return;
+        }
+        if kind == "preproc_arg" {
+            push_words(text, start.row, &mut self.out.code);
+            return;
+        }
+        if node.child_count() == 0 {
+            if !text.trim().is_empty() {
+                let mut leaf = token(without_cr(text), start, end_row);
+                leaf.kind = kind;
+                leaf.optional_comma = is_optional_comma(node, place);
+                leaf.opens_block =
+                    kind == ":" && place.next.first().is_some_and(|n| n.kind() == "block");
+                if self.braces && matches!(kind, "{" | "}") {
+                    leaf.block = place.parent.and_then(|block| {
+                        let control = body_of(block, place.grandparent)
+                            .filter(|_| block.kind() == "compound_statement");
+                        control.map(|control| (block.id(), control))
+                    });
+                }
+                self.push(leaf);
+            }
+            return;
+        }
+        let first = self.out.code.len();
+        let (mut at, mut at_point) = (node.start_byte(), start);
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let in_macro = place.in_macro || kind.starts_with("token_") || kind == "macro_definition";
+        for (i, &child) in children.iter().enumerate() {
+            push_gap(source, at, at_point, child.start_byte(), &mut self.out.code);
+            let child_place = Place {
+                parent: Some(node),
+                grandparent: place.parent,
+                next: &children[i + 1..],
+                in_macro,
+            };
+            self.push_tokens(child, &child_place);
+            if child.end_byte() > at {
+                (at, at_point) = (child.end_byte(), child.end_position());
+            }
+        }
+        push_gap(source, at, at_point, node.end_byte(), &mut self.out.code);
+        let last = self.out.code.len();
+        if self.braces && last > first && kind != "compound_statement" {
+            if let Some(control) = body_of(node, place.parent) {
+                let bodies = self.out.bodies.entry(first).or_default();
+                bodies.push((last - 1, control));
+            }
+        }
     }
-    let (mut at, mut at_point) = (node.start_byte(), start);
+}
+
+/// The kind of the control statement whose body `node`, a child of
+/// `parent`, is: the statement after an `if`, `else`, `while` or `for`
+/// header.
+fn body_of(node: Node, parent: Option<Node>) -> Option<&'static str> {
+    let parent = parent?;
+    let body = match parent.kind() {
+        "if_statement" => parent.child_by_field_name("consequence"),
+        "while_statement" | "for_statement" | "for_range_loop" => {
+            parent.child_by_field_name("body")
+        }
+        "else_clause" => {
+            let mut cursor = parent.walk();
+            let body = parent
+                .named_children(&mut cursor)
+                .find(|n| !n.kind().ends_with("comment"));
+            body
+        }
+        _ => None,
+    };
+    (body == Some(node)).then(|| parent.kind())
+}
+
+/// Whether `node`, a comment, is a Rust doc comment (`///`, `//!`, `/**`
+/// or `/*!`), which is an attribute of the item it documents.
+fn is_doc_comment(node: Node) -> bool {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        push_gap(source, at, at_point, child.start_byte(), out);
-        push_tokens(child, source, out, comments);
-        if child.end_byte() > at {
-            (at, at_point) = (child.end_byte(), child.end_position());
-        }
-    }
-    push_gap(source, at, at_point, node.end_byte(), out);
+    let doc = node
+        .children(&mut cursor)
+        .any(|c| c.kind().ends_with("doc_comment_marker"));
+    doc
 }
 
-fn token(text: String, start: tree_sitter::Point, end_row: usize) -> Token {
+fn without_cr(text: &str) -> Cow<'_, str> {
+    if text.contains('\r') {
+        Cow::Owned(text.replace('\r', ""))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
+fn token(text: Cow<'_, str>, start: tree_sitter::Point, end_row: usize) -> Token<'_> {
     Token {
         text,
         row: start.row,
         col: start.column,
         end_row,
+        seq: usize::MAX,
         optional_comma: false,
         opens_block: false,
+        block: None,
         kind: "",
     }
 }
@@ -276,38 +455,47 @@ fn is_literal(kind: &str) -> bool {
 }
 
 /// Whether `node` is a trailing comma that changes nothing: before a
-/// closing bracket or at the end of a Rust `where` clause, outside a
-/// macro's token tree, and not the comma that makes a one-element tuple
-/// (`(a,)`, or a Python subscript `x[a,]`).
-fn is_optional_comma(node: Node) -> bool {
-    if node.kind() != "," || node.is_missing() {
+/// closing bracket or at the end of a Rust `where` clause. Not one in a
+/// macro definition or a macro's token tree, where it is matched or
+/// expanded as written, the comma that makes a one-element tuple (`(a,)`),
+/// or one in a Python subscript or type subscript (`x[a,]`, `tuple[a,]`),
+/// whose index it makes a tuple.
+fn is_optional_comma(node: Node, place: &Place) -> bool {
+    if node.kind() != "," || node.is_missing() || place.in_macro {
         return false;
     }
-    let Some(parent) = node.parent() else {
+    let Some(parent) = place.parent else {
         return false;
     };
     let kind = parent.kind();
-    let mut next = node.next_sibling();
-    while next.is_some_and(|n| n.kind().ends_with("comment")) {
-        next = next.and_then(|n| n.next_sibling());
-    }
+    let next = place.next.iter().find(|n| !n.kind().ends_with("comment"));
     // A Rust `where` clause ends at the `{` or `;` after it.
     let closes = match next {
         Some(next) => matches!(next.kind(), ")" | "]" | "}" | ">"),
         None => kind == "where_clause",
     };
-    let one_tuple = kind.starts_with("tuple") && parent.named_child_count() <= 1;
-    closes && !one_tuple && !matches!(kind, "token_tree" | "subscript") && !parent.is_error()
+    if !closes || matches!(kind, "subscript" | "type_parameter") || parent.is_error() {
+        return false;
+    }
+    let one_tuple = kind.starts_with("tuple") && {
+        let mut cursor = parent.walk();
+        let commas = parent
+            .children(&mut cursor)
+            .filter(|c| c.kind() == ",")
+            .count();
+        commas == 1
+    };
+    !one_tuple
 }
 
 /// Text from `start`, at `point`, to `end` that no leaf covers, split at
 /// whitespace.
-fn push_gap(
-    source: &str,
+fn push_gap<'a>(
+    source: &'a str,
     start: usize,
     point: tree_sitter::Point,
     end: usize,
-    out: &mut Vec<Token>,
+    out: &mut Vec<Token<'a>>,
 ) {
     if start >= end {
         return;
@@ -321,19 +509,16 @@ fn push_gap(
             // A `\` that ends a line, which the grammar leaves out of the
             // tree in places, continues it.
             let ends_line = line[offset + word.len()..].trim().is_empty();
-            out.push(Token {
-                text: word.to_string(),
+            let mut gap = token(
+                Cow::Borrowed(word),
+                tree_sitter::Point::new(row, line_col + offset),
                 row,
-                col: line_col + offset,
-                end_row: row,
-                optional_comma: false,
-                opens_block: false,
-                kind: if word == "\\" && ends_line {
-                    "line_continuation"
-                } else {
-                    ""
-                },
-            });
+            );
+            gap.seq = out.len();
+            if word == "\\" && ends_line {
+                gap.kind = "line_continuation";
+            }
+            out.push(gap);
             offset += word.len();
         }
     }
@@ -374,34 +559,20 @@ fn push_words(text: &str, row: usize, out: &mut Vec<Token>) {
 
 fn flush_word(word: &mut String, row: usize, out: &mut Vec<Token>) {
     if !word.is_empty() {
-        out.push(Token {
-            text: std::mem::take(word),
-            row,
-            col: 0,
-            end_row: row,
-            optional_comma: false,
-            opens_block: false,
-            kind: "",
-        });
+        let mut flushed = layout_token(std::mem::take(word), row);
+        flushed.seq = out.len();
+        out.push(flushed);
     }
 }
 
-fn layout_token(text: &str, row: usize) -> Token {
-    Token {
-        text: text.to_string(),
-        row,
-        col: 0,
-        end_row: row,
-        optional_comma: false,
-        opens_block: false,
-        kind: "",
-    }
+fn layout_token<'a>(text: impl Into<Cow<'a, str>>, row: usize) -> Token<'a> {
+    token(text.into(), tree_sitter::Point::new(row, 0), row)
 }
 
 /// `tokens` with a `NEWLINE` after each preprocessor line: one whose
 /// first token starts with `#`, through its line continuations. A line
 /// break there ends the directive, so one moved there changes the code.
-fn mark_directive_ends(tokens: Vec<Token>, source: &str) -> Vec<Token> {
+fn mark_directive_ends<'a>(tokens: Vec<Token<'a>>, source: &str) -> Vec<Token<'a>> {
     // The row each row's logical line starts on.
     let mut logical = Vec::new();
     let mut continued = false;
@@ -494,19 +665,32 @@ fn mark_logical_lines(tokens: Vec<Token>) -> Vec<Token> {
 mod tests {
     use super::{check_tokens, Edits};
 
-    const BRACES: Edits = Edits {
-        insert: &["{", "}"],
-        ..Edits::NONE
-    };
-    const COMMAS: Edits = Edits {
-        trailing_commas: true,
-        ..Edits::NONE
-    };
-    const PYTHON: Edits = Edits {
-        delete: &["line_continuation"],
-        trailing_commas: true,
-        ..Edits::NONE
-    };
+    fn braces() -> Edits {
+        Edits {
+            braced_bodies: vec![
+                "if_statement",
+                "else_clause",
+                "while_statement",
+                "for_statement",
+            ],
+            ..Edits::NONE
+        }
+    }
+
+    fn commas() -> Edits {
+        Edits {
+            trailing_commas: true,
+            ..Edits::NONE
+        }
+    }
+
+    fn python() -> Edits {
+        Edits {
+            delete: &["line_continuation"],
+            trailing_commas: true,
+            ..Edits::NONE
+        }
+    }
 
     fn passes(key: &str, edits: &Edits, source: &str, output: &str) -> bool {
         check_tokens("test", key, source, output, edits).is_ok()
@@ -538,7 +722,7 @@ mod tests {
         ));
         assert!(!passes(
             "python",
-            &PYTHON,
+            &python(),
             "def f(:\n    pass\n",
             "def f():\n    pass\n"
         ));
@@ -587,11 +771,11 @@ mod tests {
     fn braces_may_be_added_only_when_allowed() {
         let source = "void f(int a) { if (a) g(); }\n";
         let output = "void f(int a)\n{\n    if (a) {\n        g();\n    }\n}\n";
-        assert!(passes("c", &BRACES, source, output));
+        assert!(passes("c", &braces(), source, output));
         assert!(!passes("c", &Edits::NONE, source, output));
         assert!(!passes(
             "c",
-            &BRACES,
+            &braces(),
             "void f(void) { g(); }\n",
             "void f(void) g();\n"
         ));
@@ -624,48 +808,48 @@ mod tests {
             "char *s = \"true\";\n",
             "char *s = \" true \";\n"
         ));
-        assert!(!passes("python", &PYTHON, "s = 'a  b'\n", "s = 'a b'\n"));
+        assert!(!passes("python", &python(), "s = 'a  b'\n", "s = 'a b'\n"));
     }
 
     #[test]
     fn trailing_commas_may_come_and_go_unless_they_make_a_tuple() {
         assert!(passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f() { g(a, b,); }\n",
             "fn f() { g(a, b); }\n"
         ));
         assert!(passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f() { g(a, b); }\n",
             "fn f() { g(a, b,); }\n"
         ));
         assert!(passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f<T>() where T: X {}\n",
             "fn f<T>() where T: X, {}\n"
         ));
         assert!(!passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f() { let t = (5,); }\n",
             "fn f() { let t = (5); }\n"
         ));
         assert!(!passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f() { let t = (5); }\n",
             "fn f() { let t = (5,); }\n"
         ));
         assert!(!passes(
             "rust",
-            &COMMAS,
+            &commas(),
             "fn f() { g(a, b); }\n",
             "fn f() { g(a b); }\n"
         ));
-        assert!(!passes("python", &PYTHON, "x = d[a,]\n", "x = d[a]\n"));
+        assert!(!passes("python", &python(), "x = d[a,]\n", "x = d[a]\n"));
     }
 
     #[test]
@@ -673,19 +857,19 @@ mod tests {
         let source = "if a:\n  b = 1\n  c = 2\n";
         assert!(passes(
             "python",
-            &PYTHON,
+            &python(),
             source,
             "if a:\n    b = 1\n    c = 2\n"
         ));
         assert!(!passes(
             "python",
-            &PYTHON,
+            &python(),
             source,
             "if a:\n    b = 1\nc = 2\n"
         ));
         assert!(!passes(
             "python",
-            &PYTHON,
+            &python(),
             "def g(a):\n    if a\n        return a\n",
             "def g(a): if a return a\n"
         ));
@@ -695,27 +879,209 @@ mod tests {
     fn python_forms_that_read_the_same_pass() {
         assert!(passes(
             "python",
-            &PYTHON,
+            &python(),
             "a = 1; b = 2\n",
             "a = 1\nb = 2\n"
         ));
         assert!(passes(
             "python",
-            &PYTHON,
+            &python(),
             "if a: b = 1\nc = 2\n",
             "if a:\n    b = 1\nc = 2\n"
         ));
         assert!(passes(
             "python",
-            &PYTHON,
+            &python(),
             "x = 1 + \\\n    2\n",
             "x = 1 + 2\n"
         ));
         assert!(!passes(
             "python",
-            &PYTHON,
+            &python(),
             "if a: b = 1; c = 2\n",
             "if a:\n    b = 1\nc = 2\n"
         ));
+    }
+
+    #[test]
+    fn a_comment_does_not_hide_a_one_element_tuple() {
+        for (source, output) in [
+            (
+                "fn f() { let t = (5 /* c */,); }\n",
+                "fn f() { let t = (5 /* c */); }\n",
+            ),
+            (
+                "fn f() { let t = (5, // c\n); }\n",
+                "fn f() { let t = (5 // c\n); }\n",
+            ),
+            ("type T = (u8 /* c */,);\n", "type T = (u8 /* c */);\n"),
+            (
+                "fn f(t: T) { let (a /* c */,) = t; }\n",
+                "fn f(t: T) { let (a /* c */) = t; }\n",
+            ),
+        ] {
+            assert!(!passes("rust", &commas(), source, output), "{source}");
+            assert!(!passes("rust", &commas(), output, source), "{output}");
+        }
+        let (source, output) = ("x = (1,  # c\n)\n", "x = (1  # c\n)\n");
+        assert!(!passes("python", &python(), source, output));
+        assert!(!passes("python", &python(), output, source));
+    }
+
+    #[test]
+    fn macro_definition_commas_are_compared() {
+        for (source, output) in [
+            (
+                "macro_rules! m { ($a:expr,) => {} }\n",
+                "macro_rules! m { ($a:expr) => {} }\n",
+            ),
+            (
+                "macro_rules! m { ($(,)?) => {} }\n",
+                "macro_rules! m { ($()?) => {} }\n",
+            ),
+            (
+                "macro_rules! m { ($($a:expr),*) => { f($($a,)*) } }\n",
+                "macro_rules! m { ($($a:expr),*) => { f($($a)*) } }\n",
+            ),
+        ] {
+            assert!(!passes("rust", &commas(), source, output), "{source}");
+        }
+    }
+
+    #[test]
+    fn a_python_type_subscript_keeps_its_comma() {
+        assert!(!passes(
+            "python",
+            &python(),
+            "x: tuple[int,] = 1\n",
+            "x: tuple[int] = 1\n"
+        ));
+        assert!(passes("python", &python(), "x = [1, 2,]\n", "x = [1, 2]\n"));
+    }
+
+    #[test]
+    fn many_added_braces_are_checked_in_one_pass() {
+        let source: String = (0..5000)
+            .map(|n| format!("void f{n}(int a) {{ if (a) g(); while (a) h(); }}\n"))
+            .collect();
+        let output: String = (0..5000)
+            .map(|n| {
+                format!(
+                    "void f{n}(int a)\n{{\n    if (a) {{\n        g();\n    }}\n    \
+                     while (a) {{\n        h();\n    }}\n}}\n"
+                )
+            })
+            .collect();
+        assert!(passes("c", &braces(), &source, &output));
+        let dropped = output.replacen("h();", "", 1);
+        assert!(!passes("c", &braces(), &source, &dropped));
+    }
+
+    #[test]
+    fn rust_doc_comments_stay_with_their_item() {
+        let source = "/// a\nfn x() {}\nfn y() {}\n";
+        assert!(passes(
+            "rust",
+            &commas(),
+            source,
+            "/// a\nfn x() {}\n\nfn y() {}\n"
+        ));
+        assert!(!passes(
+            "rust",
+            &commas(),
+            source,
+            "fn x() {}\n/// a\nfn y() {}\n"
+        ));
+        assert!(!passes(
+            "rust",
+            &commas(),
+            "mod m {\n    //! a\n}\n",
+            "//! a\nmod m {}\n"
+        ));
+        assert!(!passes(
+            "rust",
+            &commas(),
+            "/// let x = 1;\nfn x() {}\n",
+            "/// letx=1;\nfn x() {}\n"
+        ));
+        assert!(passes(
+            "rust",
+            &commas(),
+            "mod m {\n/// a\n  fn x() {}\n}\n",
+            "mod m {\n    /// a\n    fn x() {}\n}\n"
+        ));
+    }
+
+    #[test]
+    fn added_braces_must_hold_exactly_the_body() {
+        let wider = (
+            "void f(int a) { if (a) g(); h(); }\n",
+            "void f(int a) { if (a) { g(); h(); } }\n",
+        );
+        assert!(!passes("c", &braces(), wider.0, wider.1));
+        let dangling = (
+            "void f(int a, int b) { if (a) if (b) x(); else y(); }\n",
+            "void f(int a, int b) { if (a) { if (b) x(); } else y(); }\n",
+        );
+        assert!(!passes("c", &braces(), dangling.0, dangling.1));
+        let nested = (
+            "void f(int a, int b) { if (a) if (b) x(); else y(); }\n",
+            "void f(int a, int b) { if (a) { if (b) { x(); } else { y(); } } }\n",
+        );
+        assert!(passes("c", &braces(), nested.0, nested.1));
+        let initializer = ("int a[] = 1, 2;\n", "int a[] = { 1, 2 };\n");
+        assert!(!passes("c", &braces(), initializer.0, initializer.1));
+        let only_while = Edits {
+            braced_bodies: vec!["while_statement"],
+            ..Edits::NONE
+        };
+        let source = "void f(int a) { if (a) g(); while (a) g(); }\n";
+        let output = "void f(int a) { if (a) g(); while (a) { g(); } }\n";
+        assert!(passes("c", &only_while, source, output));
+        assert!(!passes(
+            "c",
+            &only_while,
+            source,
+            "void f(int a) { if (a) { g(); } while (a) g(); }\n"
+        ));
+    }
+
+    #[test]
+    fn comment_words_keep_their_spaces() {
+        let source = "/* a b */\nint x;\n";
+        assert!(!passes("c", &Edits::NONE, source, "/* ab */\nint x;\n"));
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "void f(void)\n{\n  /* a\n   * b */\n}\n",
+            "void f(void)\n{\n    /* a\n     * b */\n}\n"
+        ));
+    }
+
+    #[test]
+    fn a_python_encoding_line_stays_on_its_line() {
+        let source = "#!/usr/bin/env python\n# -*- coding: latin-1 -*-\nx = 1\n";
+        assert!(passes("python", &python(), source, source));
+        assert!(!passes(
+            "python",
+            &python(),
+            source,
+            "#!/usr/bin/env python\n\n# -*- coding: latin-1 -*-\nx = 1\n"
+        ));
+        assert!(!passes(
+            "python",
+            &python(),
+            "# -*- coding: latin-1 -*-\nx = 1\n",
+            "x = 1\n# -*- coding: latin-1 -*-\n"
+        ));
+        // After code, it is an ordinary comment.
+        let late = "\"\"\"Doc.\"\"\"\n# -*- coding: utf-8 -*-\nx = 1\n";
+        assert!(passes("python", &python(), late, late));
+    }
+
+    #[test]
+    fn a_long_tuple_is_checked_in_one_pass() {
+        let big = format!("x = ({})\n", "1, ".repeat(20000));
+        assert!(passes("python", &python(), &big, &big));
     }
 }

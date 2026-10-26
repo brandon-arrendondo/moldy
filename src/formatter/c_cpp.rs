@@ -3775,15 +3775,29 @@ fn is_simple_fn_ptr_declarator(fn_decl: Node) -> bool {
 
 /// Return the byte offset of the `/*` or `//` that starts a TRAILING comment
 /// on `line` (i.e., code appears before the comment), or `None` otherwise.
-fn trailing_comment_col(line: &str) -> Option<usize> {
+/// `in_block` says whether the line starts inside a block comment, and is
+/// updated to whether the next one does: text inside a comment is not code,
+/// and a `//` there starts nothing.
+fn trailing_comment_col(line: &str, in_block: &mut bool) -> Option<usize> {
     let bytes = line.as_bytes();
     let n = bytes.len();
     let mut in_str = false;
     let mut str_ch = b'"';
     let mut code_seen = false;
+    let mut found = None;
+    let mut decided = false;
     let mut i = 0;
     while i < n {
         let b = bytes[i];
+        if *in_block {
+            if b == b'*' && bytes.get(i + 1) == Some(&b'/') {
+                *in_block = false;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
         if in_str {
             if b == b'\\' {
                 i += 2;
@@ -3804,17 +3818,23 @@ fn trailing_comment_col(line: &str) -> Option<usize> {
         }
         if i + 1 < n && b == b'/' && (bytes[i + 1] == b'*' || bytes[i + 1] == b'/') {
             // Only a trailing comment if code appeared before this.
-            if code_seen {
-                return Some(i);
+            if !decided {
+                decided = true;
+                found = code_seen.then_some(i);
             }
-            return None;
+            if bytes[i + 1] == b'/' {
+                break;
+            }
+            *in_block = true;
+            i += 2;
+            continue;
         }
         if b != b' ' && b != b'\t' {
             code_seen = true;
         }
         i += 1;
     }
-    None
+    found
 }
 
 fn round_up_to_multiple(n: usize, m: usize) -> usize {
@@ -3836,7 +3856,11 @@ fn align_trailing_comments(
 ) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
     let n = lines.len();
-    let cols: Vec<Option<usize>> = lines.iter().map(|l| trailing_comment_col(l)).collect();
+    let mut in_block = false;
+    let cols: Vec<Option<usize>> = lines
+        .iter()
+        .map(|l| trailing_comment_col(l, &mut in_block))
+        .collect();
     let mut result: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
 
     let mut i = 0;
@@ -3980,7 +4004,16 @@ fn is_bare_enum_member(line: &str) -> bool {
 fn align_enum_equals(output: &str, on_tabstop: bool, tab_width: usize) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
     let n = lines.len();
-    let cols: Vec<Option<usize>> = lines.iter().map(|l| enum_eq_col(l)).collect();
+    // A line inside a block comment is text, not a member.
+    let mut in_block = false;
+    let cols: Vec<Option<usize>> = lines
+        .iter()
+        .map(|l| {
+            let in_comment = in_block;
+            trailing_comment_col(l, &mut in_block);
+            enum_eq_col(l).filter(|_| !in_comment)
+        })
+        .collect();
     let mut result: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
 
     let mut i = 0;
