@@ -5,13 +5,26 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
 ### Added
 
 - `moldy - --stdin-filename NAME` formats source read from stdin and writes
   it to stdout. `NAME` is the file the source stands for: its extension
-  chooses the language, and ignore patterns match it. `-` with `--in-place`
+  (and for a `.h`, its content) chooses the language, and ignore patterns
+  match it. `-` with `--in-place`
   or `--check`, or without `--stdin-filename`, exits 2. Before, `-` was
   taken as a file name and the run exited 3.
+
+### Fixed
+
+- A crash inside the formatter now fails only the file it was formatting:
+  the file is named as `a.rs: not formatted (internal error: ...)`, the
+  other files are still handled, and the run exits 3. Printing to stdout,
+  the file's text is printed unchanged, as for a file the formatter
+  declines. Before, the crash stopped the whole run with exit 101.
+- An unknown `--preset` is reported as `unknown preset 'NAME' (available:
+  ...)` instead of as an unsupported language. It still exits 2.
 
 ### Changed
 
@@ -25,16 +38,6 @@ What changed for users of Moldy, newest release first. See
   known exception: one that names a variable `new` or `delete`, or has a
   statement such as `a & b;`, is read as C++ and can be laid out wrongly
   (`new ->next`). Exclude such a header with an ignore pattern.
-
-### Fixed
-
-- A crash inside the formatter now fails only the file it was formatting:
-  the file is named as `a.rs: not formatted (internal error: ...)`, the
-  other files are still handled, and the run exits 3. Printing to stdout,
-  the file's text is printed unchanged, as for a file the formatter
-  declines. Before, the crash stopped the whole run with exit 101.
-- An unknown `--preset` is reported as `unknown preset 'NAME' (available:
-  ...)` instead of as an unsupported language. It still exits 2.
 
 ## [0.5.1] - 2026-10-25
 
@@ -193,7 +196,8 @@ assistance; see the README's AI Assistance section.
 Accountable reviewer: Brandon Arrendondo. Moldy is developed with AI
 assistance; see the README's AI Assistance section.
 
-[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/brandon-arrendondo/moldy/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/brandon-arrendondo/moldy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/brandon-arrendondo/moldy/compare/v0.3.0...v0.4.0
