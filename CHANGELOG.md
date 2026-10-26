@@ -21,7 +21,10 @@ What changed for users of Moldy, newest release first. See
 - A `.h` or `.H` header whose content can only be C++, such as one holding
   a namespace, class or template, is formatted as C++, as knots already
   reads it. Before, every `.h` was formatted as C, which
-  laid out C++ headers by C rules. A header written in C is unchanged.
+  laid out C++ headers by C rules. A header written in C stays C, with a
+  known exception: one that names a variable `new` or `delete`, or has a
+  statement such as `a & b;`, is read as C++ and can be laid out wrongly
+  (`new ->next`). Exclude such a header with an ignore pattern.
 
 ### Fixed
 
