@@ -23,7 +23,7 @@ moldy [OPTIONS] <FILES>...
 
 ## Standard input
 
-`moldy - --stdin-filename NAME` reads the source from stdin and writes the formatted result to stdout. Stdin has no extension, so `NAME` stands in for the file's path: its extension or file name chooses the language, as the table [below](#language-detection) gives it, and the config's ignore patterns match it. `NAME` need not exist. An editor passes the path of the buffer it pipes:
+`moldy - --stdin-filename NAME` reads the source from stdin and writes the formatted result to stdout. Stdin has no extension, so `NAME` stands in for the file's path: its extension or file name, and for a `.h`, its content, chooses the language, as the table [below](#language-detection) gives it, and the config's ignore patterns match it. `NAME` need not exist. An editor passes the path of the buffer it pipes:
 
 ```sh
 moldy - --stdin-filename src/parser.rs < src/parser.rs

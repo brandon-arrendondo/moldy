@@ -1,6 +1,7 @@
 //! Regression checks for substrate-backed CLI discovery and header handling.
 
 use std::fs;
+use std::io::Write;
 use std::process::Command;
 
 #[test]
@@ -210,6 +211,26 @@ fn headers_are_formatted_in_the_language_of_their_content() {
     let as_c = format("ref.c");
     assert_eq!(format("b.h"), as_c);
     assert_eq!(format("B.H"), as_c);
+    let stdin = |name: &str, source: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_moldy"))
+            .current_dir(dir.path())
+            .args(["-", "--stdin-filename", name])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(source.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{name}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert_eq!(stdin("d.h", cpp), as_cpp);
+    assert_eq!(stdin("b.h", c), as_c);
     let guarded_as_c = format("guarded.c");
     assert_ne!(guarded_as_c, format("guarded.hpp"));
     assert_eq!(format("guarded.h"), guarded_as_c);
