@@ -122,8 +122,9 @@ gersemi's signature table is MPL-2.0; do not copy it. Extend
 matching. Disable default features and enable only the nine implemented
 formatters. `language_info_for_file` drives dispatch; `language_for_key`
 provides grammars, including `markdown_inline`; `language_for_file` serves tree
-dumping; `PathIgnore::with_extension_case_folded` serves path matching, with extensions matched in any case as discovery does; `markdown::ContentMap` strips
-Markdown container prefixes. Recursive discovery uses `is_discoverable_file`,
+dumping; `PathIgnore::with_extension_case_folded` serves path matching,
+with extensions matched in any case as discovery does; `markdown::ContentMap`
+strips Markdown container prefixes. Recursive discovery uses `is_discoverable_file`,
 which matches extensions and file names such as `CMakeLists.txt` and skips
 `.h`. An explicit `.h` uses C unless `language_for_header_content` finds
 C++-only syntax, then C++. Do not duplicate

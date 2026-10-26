@@ -327,71 +327,66 @@ fn shared_and_formatter_ignores_apply_to_explicit_inputs() {
     );
 }
 
-/// A Windows-built tree names files `A.C` and `B.H`. An ignore pattern's
-/// extension matches in any case, as discovery's does, from both moldy.toml
-/// and toolchain.toml; directory names and the rest of the name still match
-/// as written.
-#[test]
-fn ignore_patterns_match_extensions_in_any_case_and_directories_as_written() {
+/// Runs `moldy --check` on `args` in a tree holding `files` and returns the
+/// stderr lines without the summary, sorted, with `/` as the separator.
+fn checked_files(toolchain: &str, config: &str, files: &[&str], args: &[&str]) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("toolchain.toml"),
-        "[ignore]\npaths = [\"gen/*.h\"]\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("moldy.toml"),
-        "[ignore]\npatterns = [\"*.pb.c\", \"vendor/**\"]\n",
-    )
-    .unwrap();
-    let unformatted = "int foo(){return 0;}";
-    for name in [
-        "src/A.C",
-        "src/MSG.PB.C",
-        "src/msg.pb.C",
-        "gen/B.H",
-        "Gen/C.H",
-        "vendor/v.c",
-        "Vendor/V.C",
-    ] {
+    fs::write(dir.path().join("toolchain.toml"), toolchain).unwrap();
+    fs::write(dir.path().join("moldy.toml"), config).unwrap();
+    for name in files {
         let path = dir.path().join(name);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, unformatted).unwrap();
+        fs::write(path, "int foo(){return 0;}").unwrap();
     }
     let output = Command::new(env!("CARGO_BIN_EXE_moldy"))
         .current_dir(dir.path())
-        .args([
-            "--check",
-            "--recursive",
-            "src",
-            "vendor",
-            "Vendor",
-            "gen/B.H",
-            "Gen/C.H",
-        ])
+        .arg("--check")
+        .args(args)
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let mut stderr: Vec<_> = String::from_utf8(output.stderr)
-        .unwrap()
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let mut lines: Vec<_> = stderr
         .lines()
-        .map(str::to_string)
+        .filter(|line| !line.starts_with("moldy: "))
+        .map(|line| line.replace('\\', "/"))
         .collect();
-    let summary = stderr.pop().unwrap();
-    stderr.sort();
-    // `*.pb.c` folds only its extension: `MSG.PB.C` keeps its uppercase
-    // `PB`, which does not match `pb`.
+    lines.sort();
+    lines
+}
+
+/// A Windows-built tree names files `A.C` and `B.H`. An ignore pattern's
+/// extension matches in any case, as discovery's does, from both moldy.toml
+/// and toolchain.toml.
+#[test]
+fn ignore_patterns_match_extensions_in_any_case() {
+    let lines = checked_files(
+        "[ignore]\npaths = [\"gen/*.h\"]\n",
+        "[ignore]\npatterns = [\"*.pb.c\"]\n",
+        &["src/A.C", "src/msg.pb.C", "gen/B.H"],
+        &["--recursive", "src", "gen/B.H"],
+    );
+    assert_eq!(lines, ["src/A.C: would reformat"]);
+}
+
+/// Only the extension folds: directory names and the rest of the file name
+/// match as written. A case-insensitive file system cannot hold these
+/// names side by side.
+#[cfg(not(windows))]
+#[test]
+fn ignore_patterns_match_directories_and_names_as_written() {
+    let lines = checked_files(
+        "[ignore]\npaths = [\"gen/*.h\"]\n",
+        "[ignore]\npatterns = [\"*.pb.c\", \"vendor/**\"]\n",
+        &["src/MSG.PB.C", "vendor/v.c", "Vendor/V.C", "Gen/C.H"],
+        &["--recursive", "src", "vendor", "Vendor", "Gen/C.H"],
+    );
     assert_eq!(
-        stderr,
+        lines,
         [
             "Gen/C.H: would reformat",
             "Vendor/V.C: would reformat",
-            "src/A.C: would reformat",
             "src/MSG.PB.C: would reformat",
         ]
-    );
-    assert_eq!(
-        summary,
-        "moldy: 4 files: 4 would be reformatted, 0 unchanged, 0 not formatted"
     );
 }

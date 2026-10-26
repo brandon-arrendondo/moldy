@@ -491,14 +491,14 @@ mod tests {
 
     #[test]
     fn should_ignore_matches_full_path_glob() {
-        let ignore = PathIgnore::new(["vendor/**"]).unwrap();
+        let ignore = PathIgnore::with_extension_case_folded(["vendor/**"]).unwrap();
         assert!(should_ignore(Path::new("vendor/lib/foo.c"), &ignore));
         assert!(!should_ignore(Path::new("src/foo.c"), &ignore));
     }
 
     #[test]
     fn should_ignore_falls_back_to_bare_filename() {
-        let ignore = PathIgnore::new(["*.min.js"]).unwrap();
+        let ignore = PathIgnore::with_extension_case_folded(["*.min.js"]).unwrap();
         assert!(should_ignore(
             Path::new("src/vendor/jquery.min.js"),
             &ignore
