@@ -11,6 +11,7 @@ mod output;
 
 mod python;
 mod rust;
+mod verify;
 mod yaml;
 
 pub use line_endings::LineEndings;
@@ -59,7 +60,48 @@ pub fn format_source_with_line_endings(
         "bash" => bash::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
     }?;
+    if let Some((language, edits)) = token_edits(key, config) {
+        verify::check_tokens(language, key, source, &formatted, &edits)?;
+    }
     Ok(line_endings::restore(source, &formatted, policy))
+}
+
+/// For a formatter that continues over syntax errors, its language's
+/// name and the token edits its options allow; the output's other tokens
+/// must be the input's. The other formatters decline any syntax error.
+fn token_edits(key: &str, config: &Config) -> Option<(&'static str, verify::Edits)> {
+    let braces = &config.braces;
+    let edits = match key {
+        "c" | "cpp"
+            if braces.add_braces_to_if
+                || braces.add_braces_to_while
+                || braces.add_braces_to_for =>
+        {
+            verify::Edits {
+                insert: &["{", "}"],
+                ..verify::Edits::NONE
+            }
+        }
+        "c" | "cpp" => verify::Edits::NONE,
+        "rust" => verify::Edits {
+            trailing_commas: true,
+            ..verify::Edits::NONE
+        },
+        // A line continuation may go where the lines are joined.
+        "python" => verify::Edits {
+            delete: &["line_continuation"],
+            trailing_commas: true,
+            ..verify::Edits::NONE
+        },
+        _ => return None,
+    };
+    let language = match key {
+        "c" => "C",
+        "cpp" => "C++",
+        "rust" => "Rust",
+        _ => "Python",
+    };
+    Some((language, edits))
 }
 
 /// Whether `path` is a `.h` header whose content can only be C++, by the

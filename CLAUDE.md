@@ -31,6 +31,7 @@ is no repository-local task database or `.todo-sqlite-cli` marker.
 | `src/formatter/markdown_check.rs`    | Independent CommonMark reading (pulldown-cmark) of input and output, for the Markdown check.                              |
 | `src/formatter/cmake.rs`             | CMake layout targeting gersemi; `cmake_signatures.rs` holds Moldy's own command signature table.                          |
 | `src/formatter/bash.rs`              | Bash layout targeting Prettier's shell plugin (shfmt printer).                                                            |
+| `src/formatter/verify.rs`            | Token check for C, C++, Rust and Python: re-parses output, compares tokens, comments and line structure.                  |
 | `src/formatter/line_endings.rs`      | Maps source line endings onto formatted output.                                                                           |
 | `src/formatter/output.rs`            | Shared output operations.                                                                                                 |
 | `src/presets.rs`                     | Embedded preset lookup.                                                                                                   |
@@ -46,9 +47,16 @@ C preprocessor directives, Rust attributes/macros, and Python strings/f-strings
 have opaque emission paths. Do not introduce analysis dead-code blanking into
 formatting: text in inactive preprocessor branches must be retained.
 
-The C, C++, Rust and Python formatters continue over syntax errors. Unknown
-C/C++ nodes emit source text; the entire file is not guaranteed to pass
-through unchanged. The JSON, YAML, Markdown, CMake and Bash formatters
+The C, C++, Rust and Python formatters continue over syntax errors but
+never repair code: a statement or item holding an `ERROR` or `MISSING`
+node, outside the bodies emitted statement by statement, is emitted as
+written, and a token the parser invented is never emitted. `verify.rs`
+parses every output again and returns `MoldyError::Unverified` unless its
+tokens, comments and line structure match the input's, apart from the
+edits a rule makes (braces from `add_braces_*`; Rust and Python trailing
+commas that change nothing; Python line continuations). Do not widen those
+edits to make a check pass; keep it passing on real code, not only the
+corpus. The JSON, YAML, Markdown, CMake and Bash formatters
 return `MoldyError::Syntax` for any syntax error (`root.has_error()`); the
 CLI warns and leaves the file unchanged. They return `MoldyError::TooDeep`
 for nesting past `MAX_TREE_DEPTH` (and Markdown and YAML past

@@ -1,0 +1,4 @@
+#define EXPORT
+EXPORT struct widget *make_widget(void);
+EXPORT enum mode current_mode(void);
+int  keep(int  a){return a;}

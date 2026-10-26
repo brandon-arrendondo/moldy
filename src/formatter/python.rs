@@ -107,6 +107,25 @@ fn ends_with_block(node: Node) -> bool {
             .is_some_and(|c| c.kind() == "block")
 }
 
+/// Whether `node` holds a syntax error that its emitter would format over:
+/// an `ERROR` or a token the parser invented, outside the blocks whose
+/// statements are checked one by one. Such a statement is kept as written,
+/// since formatting it could invent, drop or join tokens.
+fn damaged(node: Node) -> bool {
+    if !node.has_error() {
+        return false;
+    }
+    if node.is_error() || node.is_missing() {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let mut children = node.children(&mut cursor);
+    if node.kind() == "block" {
+        return children.any(|c| c.is_missing());
+    }
+    children.any(damaged)
+}
+
 /// A bare string expression statement — used to detect a leading docstring.
 fn is_docstring(node: Node) -> bool {
     node.kind() == "expression_statement"
@@ -224,7 +243,12 @@ impl<'a> Fmt<'a> {
             }
             self.ensure_nl();
             self.emit_indent();
-            self.emit_node(item);
+            if damaged(item) {
+                // Kept as written; only its first line is indented again.
+                self.raw(self.node_text(item).trim_end_matches(['\r', '\n']));
+            } else {
+                self.emit_node(item);
+            }
             prev = Some(item);
 
             // A comment starting on the same source line as the statement
@@ -552,6 +576,16 @@ mod tests {
     fn power_operator_keeps_spaces_for_complex_operands() {
         assert_eq!(fmt("x = f(y) ** 2\n"), "x = f(y) ** 2\n");
         assert_eq!(fmt("x = (a + b) ** 2\n"), "x = (a + b) ** 2\n");
+    }
+
+    #[test]
+    fn a_statement_with_a_syntax_error_is_kept_as_written() {
+        assert_eq!(
+            fmt("def f(:\n    return 1\n\nx  =  [1,2]\n"),
+            "def f(:\n    return 1\n\n\nx = [1, 2]\n"
+        );
+        let missing_colon = "def g(a, b):\n    if a\n        return b\n    return  a\n";
+        assert_eq!(fmt(missing_colon), missing_colon);
     }
 
     #[test]

@@ -12,6 +12,6 @@ of each record before relying on it.
 | 0004 | [Moldy formats text and never runs analysis transforms](0004-format-text-without-analysis-transforms.md)                                                 | Accepted               |
 | 0005 | [Preserve source line endings unless conversion is requested](0005-preserve-source-line-endings.md)                                                      | Proposed               |
 | 0006 | [Moldy normalizes layout, and a project can keep its own conventions](0006-layout-not-authored-style.md)                                                 | Accepted (pending)     |
-| 0007 | [Moldy checks that code reads the same; layout follows the reference tool](0007-correctness-is-checked-layout-is-policy.md)                              | Accepted (pending)     |
+| 0007 | [Moldy checks that code reads the same; layout follows the reference tool](0007-correctness-is-checked-layout-is-policy.md)                              | Accepted (implemented) |
 
 Contributor rules remain in [AGENTS.md](../../AGENTS.md).

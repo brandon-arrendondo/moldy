@@ -1,0 +1,6 @@
+int answer(void)
+{
+    return 42
+}
+
+int  twice(int  a){return a*2;}

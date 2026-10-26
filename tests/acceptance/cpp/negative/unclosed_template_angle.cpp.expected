@@ -1,1 +1,5 @@
-template < typename T class Box{public : T value;};
+template <typename T
+class Box {
+public:
+    T value;
+};

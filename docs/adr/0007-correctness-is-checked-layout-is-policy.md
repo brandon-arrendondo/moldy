@@ -1,7 +1,7 @@
 # ADR-0007: Moldy checks that code reads the same; layout follows the reference tool
 
 **Status:** Accepted, 2026-10-25 (Brandon Arrendondo). Proposed
-2026-10-24. Implementation pending.
+2026-10-24. Implemented for C, C++, Rust and Python.
 
 ## Context
 
@@ -65,6 +65,13 @@ and reports it as declined, which makes the run incomplete
 input has syntax errors is still formatted, as now, when the check passes:
 text the grammar could not read is kept as written and compared like any
 other.
+
+**Moldy is a formatter, not a code corrector.** Where the input has a
+syntax error, Moldy never adds the token the parser assumed was missing,
+and never drops or joins tokens to get past it, in any language. It either
+keeps the damaged text as written, where that is safe, or declines the
+file. Keeping text as written is the main path; the check above proves the
+result, and declining is the backstop.
 
 The check uses the grammar Moldy formats with, so it cannot see a mistake
 the grammar makes in reading both input and output. Two further measures

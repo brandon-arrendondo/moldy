@@ -1,5 +1,5 @@
 int main(void)
 {
-    /*this comment never closes return
-    0;
+    /* this comment never closes
+    return 0;
 }

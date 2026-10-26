@@ -130,8 +130,8 @@ fn corpus_expected_files_pass_cli_check() {
 
 #[test]
 fn array_bound_directive_recovery_is_unchanged() {
-    // This recovery output is already non-idempotent; preserve its existing
-    // first pass rather than changing directives outside initializer lists.
+    // The grammar cannot read directives inside an array bound, so the
+    // declaration holding them is kept as written.
     let source = include_str!("regression/expression_directives.c");
     let expected = include_str!("regression/expression_directives.c.expected");
     let formatted = format_source(

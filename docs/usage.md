@@ -69,7 +69,7 @@ library's `format_source_with_line_endings` API. See
 | CMake    | `CMakeLists.txt`, `.cmake`            | —             |
 | Bash     | `.sh`, `.bash`                        | —             |
 
-Extensions and file names come from the compiled substrate registry. Extensions match in any case, so `A.C` and `B.H`, as Windows-built source trees often name them, are C and `.CPP` is C++; GCC's convention that `.C` is C++ is not followed. File names such as `CMakeLists.txt` match as written. A `.h` path selects C unless its content can only be C++ (a namespace, a class, a template), by the substrate's header detection, as knots reads it; then it is formatted as C++. A header in the subset of C++ that is also C stays C. Known limit: a C++ header whose only C++ is a reference next to a macro the parser cannot expand, such as `API_EXPORT int& counter();`, is read as C, and its C layout splits that declaration (`API_EXPORT int;` then `&counter();`), which changes the code. Give such a header a C++ extension such as `.hpp`, or exclude it with an ignore pattern. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
+Extensions and file names come from the compiled substrate registry. Extensions match in any case, so `A.C` and `B.H`, as Windows-built source trees often name them, are C and `.CPP` is C++; GCC's convention that `.C` is C++ is not followed. File names such as `CMakeLists.txt` match as written. A `.h` path selects C unless its content can only be C++ (a namespace, a class, a template), by the substrate's header detection, as knots reads it; then it is formatted as C++. A header in the subset of C++ that is also C stays C. Known limit: a C++ header whose only C++ is a reference next to a macro the parser cannot expand, such as `API_EXPORT int& counter();`, is read as C. The C grammar cannot read that declaration, so it is kept as written and not laid out. Give such a header a C++ extension such as `.hpp` to have it formatted. Shell scripts without an extension are not recognized, even with a shebang line; give them `.sh` or `.bash`. Enabling another grammar alone does not implement formatting for that language.
 
 Directories require `--recursive`; a directory named without it stops the run before any file is touched, with exit 2. So does a named path that does not exist. Recursive discovery uses the substrate's `is_discoverable_file`, which selects the extensions and file names above and skips `.h`. A directory the walk cannot read, or a dangling symbolic link it would have selected, is reported as not formatted; a symbolic link loop is not, since its target is walked anyway. Explicit file paths are attempted even if their extension is unsupported, and are then reported as not formatted (`unsupported language`). Ignore patterns apply to both explicit paths and recursive files, before any file is read; an ignored file is not selected, even when named. See [configuration](configuration.md).
 
@@ -111,18 +111,30 @@ A run that selects no files is incomplete, because a check of nothing does not e
 
 ## Formatting limits
 
-C/C++ targets funky's rules, verified against checked-in fixtures. The C, C++, Rust and Python formatters continue over trees with syntax errors; C/C++ unknown nodes fall back to their source text. A successful formatting call is not a syntax-validation result or a guarantee that invalid input is unchanged. Review diffs before accepting in-place changes to malformed source.
+C/C++ targets funky's rules, verified against checked-in fixtures.
+
+### C, C++, Rust and Python: code is never changed
+
+Formatting changes layout, never code. A statement or item that holds a syntax error, such as `return 1` without its `;` or a declaration after a macro the parser cannot expand (`EXPORT struct widget *make(void);`), is kept as written, with its lines and indentation; the rest of the file is formatted. Moldy does not add the token the parser assumed was missing, and does not drop or join tokens around it. A successful run is not a syntax check: a file with errors is formatted around them.
+
+Every run then parses the output again with the same grammar and compares it with the input: the same tokens in the same order, string literals exactly, the same comments in the same order (a comment may move past code, such as from `if (a) // why` into the braces that follow), C preprocessor lines ending where they did, and Python's logical lines and indentation. If anything else differs, the file is left unchanged and declined, for example `a.c: not formatted (C could not be formatted without changing its meaning (line 12))`, and the run exits 3. The edits Moldy's own rules make are allowed:
+
+- C and C++: `{` and `}` added around a body by `braces.add_braces_to_if`, `add_braces_to_while` or `add_braces_to_for`.
+- Rust and Python: a trailing comma added or removed where it changes nothing: before a closing bracket or at the end of a Rust `where` clause, outside a macro's tokens, and never the comma of a one-element tuple such as `(a,)` or a Python subscript such as `x[a,]`.
+- Python: a `\` line continuation removed where the lines are joined, statements joined by `;` put on lines of their own, and a block written on its `:` line (`if a: b`) given lines of its own.
+
+The check compares token text, so it cannot tell an added brace in the wrong place from one in the right place, and it reads input and output with the same grammar, so it cannot see a misreading the grammar makes of both. Known declines: a comment on the line after a top-level `#define` or `#pragma` is moved onto the directive line, where the grammar reads it as part of the directive, and a `struct` declared inside a function body gains a second `;`.
 
 Rust's `rustfmt-compat` preset enables width-based list wrapping and short field-list collapsing, but it is not complete rustfmt parity. Attributes and macro invocations remain opaque. Rustfmt's packed multiline list layout is not implemented.
 
 Python defaults to width 79; the `black` preset selects 88. Strings and f-strings remain opaque, with no quote normalization. Comprehensions, subscripts/slices, and multi-target assignments lack width-based wrapping. Magic trailing commas do not force multiline output. The width is a wrapping budget for supported constructs, not a hard maximum line length. The presets do not guarantee complete Black/Ruff or PEP8 conformance for arbitrary source.
 
 C/C++ string literals with backslash-newline continuations, including inline
-assembly, are not reliably parsed with CRLF: formatting can change indentation
-or damage strings. Explicit CRLF conversion can expose this on a later pass.
+assembly, are not reliably parsed with CRLF: formatting can change indentation,
+or the file is declined. Explicit CRLF conversion can expose this on a later pass.
 Two consecutive preprocessor directives inside an initializer list can lay out
 differently with CRLF. The pair alone preserves tokens and is idempotent; with
-further directives or initializers after it, recovery can damage tokens and
+further directives or initializers after it, the file can be declined or
 fail repeated-formatting checks. This predates ending preservation; the 0.2.1
 initializer-directive fix did not cover those CRLF recovery cases.
 

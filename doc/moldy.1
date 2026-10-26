@@ -230,9 +230,12 @@ was left unformatted on purpose, or no file was selected without
 .BR \-\-allow\-empty .
 It outranks 1.
 .SH LIMITATIONS
-The C, C++, Rust and Python formatters continue over syntax-error trees;
-successful formatting does not validate syntax or guarantee malformed source
-is unchanged. The JSON, YAML, Markdown, CMake and Bash formatters leave a
+The C, C++, Rust and Python formatters keep a statement that holds a
+syntax error as written and format the rest of the file; successful
+formatting does not validate syntax. Each run parses the output again and
+compares its tokens, comments and line structure with the input's; a file
+whose code would change is left unchanged, named on standard error as not
+formatted, and the run exits with status 3. The JSON, YAML, Markdown, CMake and Bash formatters leave a
 file with any syntax error unchanged, name it on standard error as not
 formatted, and the run exits with status 3. An in-place
 error does not roll back files already written.

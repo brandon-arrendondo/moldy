@@ -216,9 +216,33 @@ fn a_declined_file_exits_3_even_beside_a_difference() {
 #[test]
 fn parser_recovery_in_c_is_not_a_failure() {
     let dir = project();
-    fs::write(dir.path().join("rec.c"), "int f( {\n  return 0;\n}\n").unwrap();
+    let source = "int  g(void){return 1;}\nint f(void)\n{\n  return 1\n}\n";
+    fs::write(dir.path().join("rec.c"), source).unwrap();
     let output = moldy(dir.path(), &["--check", "rec.c"]);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
+    // The statement the parser could not read is kept as written: no `;`
+    // is added to it.
+    let output = moldy(dir.path(), &["rec.c"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\n  return 1\n}"));
+}
+
+#[test]
+fn output_that_would_change_the_code_exits_3_and_is_left_unchanged() {
+    let dir = project();
+    // The grammar reads a comment moved onto a `#define` line as part of
+    // the macro, so the token check declines the file.
+    let source = "#define A 1\n// c\nint  x;\n";
+    fs::write(dir.path().join("d.c"), source).unwrap();
+    let output = moldy(dir.path(), &["d.c"]);
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), source);
+    assert!(stderr(&output).contains(
+        "d.c: not formatted (C could not be formatted without changing its meaning (line 2))"
+    ));
+    let output = moldy(dir.path(), &["--in-place", "d.c"]);
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert_eq!(fs::read_to_string(dir.path().join("d.c")).unwrap(), source);
 }
 
 #[test]

@@ -188,6 +188,16 @@ impl<'a> Fmt<'a> {
             let blanks = self.source_blanks(prev_end, child.start_byte());
             let kind = child.kind();
 
+            // A file the parser could not read as a whole is an `ERROR` whose
+            // loose tokens are kept as written too.
+            if damaged(child) || (node.is_error() && !child.is_named()) {
+                let last = verbatim_run(self.src, &children, i);
+                self.emit_verbatim(child.start_byte(), children[last].end_byte(), blanks);
+                prev_end = children[last].end_byte();
+                i = last + 1;
+                continue;
+            }
+
             // Check if the next sibling is a same-line trailing comment.
             let trailing_comment: Option<Node> = if kind != "comment" && i + 1 < children.len() {
                 let next = children[i + 1];
@@ -311,6 +321,29 @@ impl<'a> Fmt<'a> {
             return;
         }
         let text = self.node_text(node).trim_end_matches(['\r', '\n']);
+        self.raw(text);
+        self.nl();
+    }
+
+    /// Emits the source from `start` to `end`, which holds a syntax error,
+    /// as written, with its indentation. Code before it on its first line
+    /// stays there.
+    fn emit_verbatim(&mut self, start: usize, end: usize, blanks: usize) {
+        let line_start = self.src[..start].rfind('\n').map_or(0, |at| at + 1);
+        let indent = &self.src[line_start..start];
+        if !indent.trim().is_empty() && !self.out.is_empty() {
+            let kept = self.out.trim_end().len();
+            self.out.truncate(kept);
+            self.at_bol = false;
+            self.space();
+        } else {
+            self.emit_blank_lines(blanks);
+            self.ensure_nl();
+            if indent.trim().is_empty() {
+                self.raw(indent);
+            }
+        }
+        let text = self.src[start..end].trim_end_matches(['\r', '\n']);
         self.raw(text);
         self.nl();
     }
@@ -643,6 +676,16 @@ impl<'a> Fmt<'a> {
                 }
                 prev_end = case_node.end_byte();
                 i += 1;
+                continue;
+            }
+
+            if damaged(child) {
+                let last = verbatim_run(self.src, &children[..end_i], i);
+                self.emit_verbatim(child.start_byte(), children[last].end_byte(), blanks);
+                self.decl_block_active = false;
+                prev_end = children[last].end_byte();
+                first_stmt = false;
+                i = last + 1;
                 continue;
             }
 
@@ -995,18 +1038,24 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
-        if i < children.len() && children[i].kind() != "else_clause" {
-            let body = children[i];
+        let (comments, body) = control_body(&children[i..]);
+        if body.is_some_and(|b| b.kind() != "else_clause") || !comments.is_empty() {
             let inject = self.config.braces.add_braces_to_if;
-            self.emit_control_body(body, inject);
-            i += 1;
+            let body = body.filter(|b| b.kind() != "else_clause");
+            self.emit_control_body(comments, body, inject);
+            i += comments.len() + usize::from(body.is_some());
         }
 
-        // else clause
+        // else clause, after any comments between it and the body
         while i < children.len() {
             let child = children[i];
-            if child.kind() == "else_clause" {
-                self.emit_else_clause(child);
+            match child.kind() {
+                "else_clause" => self.emit_else_clause(child),
+                "comment" => {
+                    self.ensure_nl();
+                    self.emit_comment_standalone(child);
+                }
+                _ => {}
             }
             i += 1;
         }
@@ -1019,10 +1068,10 @@ impl<'a> Fmt<'a> {
         let body_idx = children
             .iter()
             .position(|n| n.kind() != "else")
-            .unwrap_or(1);
-        let body = children.get(body_idx);
+            .unwrap_or(children.len());
+        let (comments, body) = control_body(&children[body_idx..]);
 
-        if self.config.braces.cuddle_else {
+        if self.config.braces.cuddle_else && !self.at_bol {
             self.space();
         } else {
             self.ensure_nl();
@@ -1030,13 +1079,14 @@ impl<'a> Fmt<'a> {
         }
         self.raw("else");
 
-        if let Some(&b) = body {
-            if b.kind() == "if_statement" {
+        match body {
+            Some(b) if b.kind() == "if_statement" && comments.is_empty() => {
                 self.space();
                 self.emit_if_statement(b);
-            } else {
+            }
+            _ => {
                 let inject = self.config.braces.add_braces_to_if;
-                self.emit_control_body(b, inject);
+                self.emit_control_body(comments, body, inject);
             }
         }
     }
@@ -1064,13 +1114,13 @@ impl<'a> Fmt<'a> {
 
         // Collect items until ")"
         let in_for_header = true;
-        let mut body_node: Option<Node> = None;
+        let mut body_at = children.len();
         let mut after_paren = false;
 
         while i < children.len() {
             let child = children[i];
             if after_paren {
-                body_node = Some(child);
+                body_at = i;
                 break;
             }
             match child.kind() {
@@ -1099,10 +1149,9 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
-        if let Some(body) = body_node {
-            let inject = self.config.braces.add_braces_to_for;
-            self.emit_control_body(body, inject);
-        }
+        let (comments, body) = control_body(&children[body_at..]);
+        let inject = self.config.braces.add_braces_to_for;
+        self.emit_control_body(comments, body, inject);
         let _ = in_for_header;
     }
 
@@ -1133,18 +1182,12 @@ impl<'a> Fmt<'a> {
         }
         self.emit_leaves(&header_leaves);
 
-        let mut body_node = None;
         if i < children.len() && children[i].kind() == ")" {
             self.raw(")");
             i += 1;
-            if i < children.len() {
-                body_node = Some(children[i]);
-            }
-        }
-
-        if let Some(body) = body_node {
+            let (comments, body) = control_body(&children[i..]);
             let inject = self.config.braces.add_braces_to_for;
-            self.emit_control_body(body, inject);
+            self.emit_control_body(comments, body, inject);
         }
     }
 
@@ -1172,10 +1215,9 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
-        if i < children.len() {
-            let inject = self.config.braces.add_braces_to_while;
-            self.emit_control_body(children[i], inject);
-        }
+        let (comments, body) = control_body(&children[i..]);
+        let inject = self.config.braces.add_braces_to_while;
+        self.emit_control_body(comments, body, inject);
     }
 
     fn emit_do_statement(&mut self, node: Node) {
@@ -1192,11 +1234,20 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
-        // body
-        if i < children.len() && children[i].kind() != "while" {
-            body_opt = Some(children[i]);
+        // body, after any comments that lead it
+        let (comments, body) = control_body(&children[i..]);
+        i += comments.len();
+        if body.is_some_and(|b| b.kind() != "while") {
+            body_opt = body;
             i += 1;
         }
+        // comments between the body and `while`
+        let after_body = children[i..]
+            .iter()
+            .take_while(|n| n.kind() == "comment")
+            .count();
+        let trailing = &children[i..i + after_body];
+        i += after_body;
         // while
         while i < children.len() && children[i].kind() == "while" {
             i += 1;
@@ -1220,6 +1271,7 @@ impl<'a> Fmt<'a> {
                 self.raw("{");
                 self.nl();
                 self.depth += 1;
+                self.emit_comments_standalone(comments);
                 self.emit_compound_body(body);
                 self.depth -= 1;
                 self.ensure_nl();
@@ -1229,11 +1281,24 @@ impl<'a> Fmt<'a> {
             } else {
                 // No brace injection for do-while bodies; funky keeps body at same depth.
                 self.nl();
+                self.emit_comments_standalone(comments);
                 self.emit_indent();
                 self.emit_statement(body);
                 self.ensure_nl();
                 self.emit_indent();
             }
+        } else if !comments.is_empty() {
+            self.nl();
+            self.emit_comments_standalone(comments);
+            self.emit_indent();
+        }
+        if !trailing.is_empty() {
+            let kept = self.out.trim_end_matches([' ', '\t']).len();
+            self.out.truncate(kept);
+            self.at_bol = self.out.is_empty() || self.out.ends_with('\n');
+            self.ensure_nl();
+            self.emit_comments_standalone(trailing);
+            self.emit_indent();
         }
 
         self.raw("while");
@@ -1322,11 +1387,19 @@ impl<'a> Fmt<'a> {
             node.start_byte()
         };
 
-        for (idx, child) in children[start_i..end_i].iter().enumerate() {
-            let child = *child;
-            let i = start_i + idx;
+        let mut i = start_i;
+        while i < end_i {
+            let child = children[i];
             let kind = child.kind();
             let blanks = self.source_blanks(prev_end, child.start_byte());
+
+            if damaged(child) {
+                let last = verbatim_run(self.src, &children[..end_i], i);
+                self.emit_verbatim(child.start_byte(), children[last].end_byte(), blanks);
+                prev_end = children[last].end_byte();
+                i = last + 1;
+                continue;
+            }
 
             self.emit_blank_lines(blanks);
 
@@ -1369,6 +1442,7 @@ impl<'a> Fmt<'a> {
                 }
             }
             prev_end = child.end_byte();
+            i += 1;
         }
     }
 
@@ -1409,6 +1483,13 @@ impl<'a> Fmt<'a> {
         while i < children.len() {
             let child = children[i];
             let blanks = self.source_blanks(prev_end, child.start_byte());
+            if damaged(child) {
+                let last = verbatim_run(self.src, &children, i);
+                self.emit_verbatim(child.start_byte(), children[last].end_byte(), blanks);
+                prev_end = children[last].end_byte();
+                i = last + 1;
+                continue;
+            }
             self.emit_blank_lines(blanks);
             self.ensure_nl();
             // Null statements are at column 0 (funky invariant).
@@ -1424,7 +1505,16 @@ impl<'a> Fmt<'a> {
 
     // ── Control body (with optional brace injection) ──────────────────────────
 
-    fn emit_control_body(&mut self, node: Node, inject: bool) {
+    /// A control statement's body, and the `comments` before it, which
+    /// lead the body.
+    fn emit_control_body(&mut self, comments: &[Node], body: Option<Node>, inject: bool) {
+        let Some(node) = body else {
+            self.nl();
+            self.depth += 1;
+            self.emit_comments_standalone(comments);
+            self.depth -= 1;
+            return;
+        };
         match node.kind() {
             "compound_statement" => {
                 // Collapse empty body when configured.
@@ -1435,7 +1525,7 @@ impl<'a> Fmt<'a> {
                         .count()
                         == 0
                 };
-                if is_empty && self.config.braces.collapse_empty_body {
+                if is_empty && comments.is_empty() && self.config.braces.collapse_empty_body {
                     self.space();
                     self.raw("{}");
                     return;
@@ -1444,6 +1534,7 @@ impl<'a> Fmt<'a> {
                 self.raw("{");
                 self.nl();
                 self.depth += 1;
+                self.emit_comments_standalone(comments);
                 self.emit_compound_body(node);
                 self.depth -= 1;
                 self.ensure_nl();
@@ -1453,6 +1544,9 @@ impl<'a> Fmt<'a> {
             _ if is_null_stmt(node) => {
                 // `if (x)\n;` — funky emits `;` at column 0 (no indent).
                 self.nl();
+                self.depth += 1;
+                self.emit_comments_standalone(comments);
+                self.depth -= 1;
                 self.raw(";");
             }
             _ => {
@@ -1461,6 +1555,7 @@ impl<'a> Fmt<'a> {
                     self.raw("{");
                     self.nl();
                     self.depth += 1;
+                    self.emit_comments_standalone(comments);
                     self.emit_indent();
                     self.emit_statement(node);
                     self.depth -= 1;
@@ -1470,11 +1565,18 @@ impl<'a> Fmt<'a> {
                 } else {
                     self.nl();
                     self.depth += 1;
+                    self.emit_comments_standalone(comments);
                     self.emit_indent();
                     self.emit_statement(node);
                     self.depth -= 1;
                 }
             }
+        }
+    }
+
+    fn emit_comments_standalone(&mut self, comments: &[Node]) {
+        for &comment in comments {
+            self.emit_comment_standalone(comment);
         }
     }
 
@@ -2924,6 +3026,19 @@ impl<'a> Fmt<'a> {
             return Ws::None;
         }
 
+        // The quotes and content of one literal are a single token.
+        let literal = |n: Node<'t>| {
+            n.parent().filter(|p| {
+                matches!(
+                    p.kind(),
+                    "string_literal" | "char_literal" | "raw_string_literal"
+                )
+            })
+        };
+        if literal(node).is_some_and(|l| prev.and_then(literal) == Some(l)) {
+            return Ws::None;
+        }
+
         // No space before `[` in array declarators (e.g. `int[]`, `int[5]`, `int a[5]`).
         if kind == "[" {
             let in_array_decl = node
@@ -3388,6 +3503,68 @@ fn is_null_stmt(node: Node) -> bool {
         return children.len() == 1 && children[0].kind() == ";";
     }
     false
+}
+
+/// Whether `node` holds a syntax error that its emitter would format over:
+/// an `ERROR` or a token the parser invented, outside the statement lists
+/// whose statements are checked one by one. Such a node is emitted as
+/// written, since formatting it could invent, drop or join tokens.
+fn damaged(node: Node) -> bool {
+    if !node.has_error() {
+        return false;
+    }
+    // A `switch` without braces reads as an `ERROR` before its first case,
+    // which the emitter lays out on purpose.
+    if is_braceless_switch_error(node) {
+        return false;
+    }
+    if node.is_error() || node.is_missing() {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let mut children = node.children(&mut cursor);
+    match node.kind() {
+        "compound_statement" | "declaration_list" | "translation_unit" => {
+            children.any(|c| c.is_missing())
+        }
+        // A case's label, through its `:`; the statements after it are
+        // checked one by one.
+        "case_statement" => {
+            let mut label = true;
+            children.any(|c| {
+                let in_label = label;
+                label &= c.kind() != ":";
+                c.is_missing() || (in_label && damaged(c))
+            })
+        }
+        _ => children.any(damaged),
+    }
+}
+
+/// The index of the last sibling from `children[i]` that shares a source
+/// line with the one before it, so text kept as written takes whole lines
+/// and never splits or joins a preprocessor line.
+fn verbatim_run(src: &str, children: &[Node], i: usize) -> usize {
+    let mut last = i;
+    while let Some(next) = children.get(last + 1) {
+        if src[children[last].end_byte()..next.start_byte()].contains('\n')
+            || src[..children[last].end_byte()].ends_with('\n')
+        {
+            break;
+        }
+        last += 1;
+    }
+    last
+}
+
+/// The comments that lead `children`, and the body after them: the
+/// remaining children of a control statement after its header.
+fn control_body<'n, 't>(children: &'n [Node<'t>]) -> (&'n [Node<'t>], Option<Node<'t>>) {
+    let at = children
+        .iter()
+        .position(|n| n.kind() != "comment")
+        .unwrap_or(children.len());
+    (&children[..at], children.get(at).copied())
 }
 
 fn should_inject(node: Node) -> bool {

@@ -143,9 +143,18 @@ fn directive_comments_are_equivalent_and_idempotent_across_endings() {
     let path = Path::new("directive.c");
     for directive in ["#include <a.h>", "#define A 1", "#pragma once", "#endif"] {
         let source = format!("{directive}\n// c\nint x;\n");
-        let lf = format_source(path, &source, &config).unwrap();
         let crlf_source = source.replace('\n', "\r\n");
-        let formatted = format_source(path, &crlf_source, &config).unwrap();
+        let lf = format_source(path, &source, &config);
+        let formatted = format_source(path, &crlf_source, &config);
+        let (lf, formatted) = match (lf, formatted) {
+            (Ok(lf), Ok(formatted)) => (lf, formatted),
+            // Declined either way, for the same reason.
+            (Err(lf), Err(crlf)) => {
+                assert_eq!(lf.to_string(), crlf.to_string(), "{directive}");
+                continue;
+            }
+            (lf, crlf) => panic!("{directive}: {lf:?} but with CRLF {crlf:?}"),
+        };
         assert_eq!(formatted.replace("\r\n", "\n"), lf, "{directive}");
         assert_eq!(format_source(path, &formatted, &config).unwrap(), formatted);
         assert_eq!(

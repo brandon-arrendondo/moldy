@@ -1,0 +1,24 @@
+int count(int a, int b)
+{
+    if (a)
+        /* says why the loop ends here */
+        return 0;
+    else
+        // and why this one goes on
+        b++;
+    if (b) b--; /* before the else */
+    else a++;
+    for (a = 0; a < b; a++)
+        // one step
+        b--;
+    while (a)
+        /* counts down */ a--;
+    do
+        /* counts up */ a++;
+    /* until three */
+    while (a < 3);
+    if (a) /* set it */ {
+        a = 1;
+    }
+    return a;
+}

@@ -23,7 +23,7 @@ int directives[] = {
     3
 };
 int nested[][2] = {
-{
+    {
         1,
 #if defined(Y) && Z
         2
@@ -31,7 +31,7 @@ int nested[][2] = {
         3
 #endif
     },
-{ 4, 5 }
+    {4, 5}
 };
 int comma_after_directive[] = {
     1
@@ -57,6 +57,6 @@ int separated_comma[] = {
 };
 int first_last[] = {
 #if X
-1,
+    1,
 #endif
 };

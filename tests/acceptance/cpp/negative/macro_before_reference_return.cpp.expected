@@ -1,0 +1,7 @@
+#define API_EXPORT
+API_EXPORT const std::string& name();
+API_EXPORT int& counter();
+int keep(int a)
+{
+    return a;
+}

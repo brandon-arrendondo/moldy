@@ -110,12 +110,31 @@ fn has_misread_closure_comma(node: Node) -> bool {
     found
 }
 
+/// Whether `node` holds a syntax error that its emitter would format over:
+/// an `ERROR` or a token the parser invented, outside the blocks whose
+/// items are checked one by one. Such an item is kept as written, since
+/// formatting it could invent, drop or join tokens.
+fn damaged(node: Node) -> bool {
+    if !node.has_error() {
+        return false;
+    }
+    if node.is_error() || node.is_missing() {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let mut children = node.children(&mut cursor);
+    if matches!(node.kind(), "block" | "declaration_list") {
+        return children.any(|c| c.is_missing());
+    }
+    children.any(damaged)
+}
+
 /// Whether an item in a sequence can be laid out on its own. Where the
 /// grammar could not read a whole file, its top level is an `ERROR` node
 /// whose children mix complete items with loose tokens; only the complete
 /// ones are laid out.
 fn is_whole_item(node: Node, in_error: bool) -> bool {
-    if has_misread_closure_comma(node) {
+    if has_misread_closure_comma(node) || damaged(node) {
         return false;
     }
     let kind = node.kind();
@@ -599,6 +618,15 @@ impl<'a> Fmt<'a> {
         // A line comment runs to the end of its line, so a list holding
         // one can only be laid out one item per line.
         let has_comment = groups.iter().flatten().any(|n| n.kind() == "line_comment");
+        // `(a,)` is a one-element tuple; without its comma, `(a)` is `a`.
+        // The grammar reads a parenthesized type or pattern as a tuple too,
+        // so the comma is kept where the source has one.
+        let one_tuple = groups.len() == 1
+            && matches!(
+                node.kind(),
+                "tuple_expression" | "tuple_type" | "tuple_pattern"
+            )
+            && children.iter().any(|n| n.kind() == ",");
         let render_inline = |s: &mut Self| {
             s.render_scratch(|s| {
                 if pad {
@@ -609,6 +637,9 @@ impl<'a> Fmt<'a> {
                         s.raw(", ");
                     }
                     s.emit_group(group, node);
+                }
+                if one_tuple {
+                    s.raw(",");
                 }
                 if pad {
                     s.raw(" ");
@@ -639,6 +670,9 @@ impl<'a> Fmt<'a> {
                     self.raw(", ");
                 }
                 self.emit_group(group, node);
+            }
+            if one_tuple {
+                self.raw(",");
             }
             if pad {
                 self.raw(" ");
@@ -706,6 +740,19 @@ mod tests {
 
     fn fmt_with(config: &Config, src: &str) -> String {
         format(src, config).unwrap_or_else(|e| panic!("format failed: {e}"))
+    }
+
+    #[test]
+    fn an_item_with_a_syntax_error_is_kept_as_written() {
+        let src = "fn f(a: u32 {\n    a\n}\nfn g()  ->  u32 { 1 }\n";
+        let out = fmt_with(&Config::default(), src);
+        assert_eq!(out, "fn f(a: u32 {\n    a\n}\nfn g() -> u32 {\n    1\n}\n");
+    }
+
+    #[test]
+    fn a_one_element_tuple_keeps_its_comma() {
+        let src = "fn f() {\n    let t: (u8,) = (1,);\n}\n";
+        assert_eq!(fmt_with(&Config::default(), src), src);
     }
 
     #[test]

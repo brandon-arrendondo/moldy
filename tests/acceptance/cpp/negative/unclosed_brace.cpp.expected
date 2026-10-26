@@ -1,6 +1,10 @@
-class Widget{public : Widget(){} void run()
+class Widget {
+public:
+    Widget() {}
+
+    void run()
     {
-        if (true){
+        if (true) {
             return;
         }
     }

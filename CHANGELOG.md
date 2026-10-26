@@ -7,13 +7,34 @@ What changed for users of Moldy, newest release first. See
 
 ### Fixed
 
+- The C, C++, Rust and Python formatters no longer change code. A
+  statement the parser cannot read is kept as written, with the rest of
+  the file formatted around it. Before, Moldy added the token the parser
+  assumed was missing (`return 1` gained a `;`, Python's `def f(:` a
+  `)`), split a declaration after an unexpanded macro
+  (`EXPORT struct widget *make(void);` became `EXPORT struct;` and
+  `widget *make(void);`), or joined tokens (`#define REG 0` became
+  `#defineREG0`). Every run now also parses the output again and compares
+  its tokens, comments and line structure with the input's. A file whose
+  code would change is left unchanged and reported, for example
+  `a.c: not formatted (C could not be formatted without changing its
+  meaning (line 12))`, and the run exits 3. See the usage guide for what
+  is compared and the edits formatting may make.
+- C and C++: a comment between `if (...)`, `else`, `for (...)`, `while
+  (...)` or `do` and its body no longer deletes the body:
+  `if (a) /* why */ return 0;` lost its `return 0;`. The comment now
+  opens the body.
+- C and C++: text inside a string literal is no longer spaced: `"true"`
+  became `" true "`.
+- Rust: a one-element tuple keeps its comma. `(5,)` and `(u8,)` became
+  `(5)` and `(u8)`, which are not tuples.
 - A C header that names a variable `new` or `delete`, as the Linux
   `list.h` helpers do, or has a statement such as `a & b;`, is formatted as
   C. Before, it was read as C++ and laid out wrongly (`new ->next`). A C++
   header whose only C++ is a reference return after a macro the parser
   cannot expand, such as `API_EXPORT int& counter();`, is now read as C,
-  and its C layout breaks that declaration apart. Give such a header a
-  C++ extension such as `.hpp`.
+  which cannot read that declaration, so it is kept as written. Give such
+  a header a C++ extension such as `.hpp` to have it formatted.
 
 ### Changed
 
