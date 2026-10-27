@@ -77,6 +77,10 @@ struct Fmt<'a> {
     // Column after `= ` in an init-declarator, so that a compound-literal `{`
     // appearing on the next line in emit_leaves can align to it.
     assign_col_for_brace: Option<usize>,
+    // A comment after a control statement on its last line, by byte range,
+    // and the statement's end: the innermost body ending there takes it,
+    // so that it stays inside braces added around that body.
+    body_comment: Option<(usize, std::ops::Range<usize>)>,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -124,6 +128,7 @@ impl<'a> Fmt<'a> {
             decl_block_at_stmt_start: false,
             last_lambda_col: None,
             assign_col_for_brace: None,
+            body_comment: None,
         }
     }
 
@@ -201,17 +206,7 @@ impl<'a> Fmt<'a> {
             // Check if the next sibling is a same-line trailing comment.
             let trailing_comment: Option<Node> = if kind != "comment" && i + 1 < children.len() {
                 let next = children[i + 1];
-                if next.kind() == "comment" {
-                    let stmt_end_line = self.src[..child.end_byte()].lines().count();
-                    let cmt_line = self.src[..next.start_byte()].lines().count();
-                    if stmt_end_line == cmt_line {
-                        Some(next)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                (next.kind() == "comment" && self.is_trailing_comment(next)).then_some(next)
             } else {
                 None
             };
@@ -227,7 +222,7 @@ impl<'a> Fmt<'a> {
                     self.emit_preproc(child);
                 }
                 "comment" => {
-                    self.emit_comment_standalone(child);
+                    self.emit_list_comment(child);
                 }
                 "function_definition" => {
                     self.emit_indent();
@@ -348,11 +343,109 @@ impl<'a> Fmt<'a> {
         self.nl();
     }
 
-    fn emit_comment_standalone(&mut self, node: Node) {
-        self.emit_indent();
-        let text = self.node_text(node).trim_end_matches(['\r', '\n']);
-        self.raw(text);
+    /// Emits the directive line that starts at `leaf`, which error
+    /// recovery split into expression leaves, through its continuations.
+    fn emit_initializer_directive(&mut self, leaf: Node) {
+        let mut end = leaf.start_byte();
+        loop {
+            end = self.src[end..]
+                .find('\n')
+                .map_or(self.src.len(), |offset| end + offset + 1);
+            if end == self.src.len()
+                || !self.src[..end]
+                    .trim_end_matches(['\r', '\n'])
+                    .ends_with('\\')
+            {
+                break;
+            }
+        }
+        self.ensure_nl();
+        let text = self.src[leaf.start_byte()..end]
+            .trim_end_matches(['\r', '\n'])
+            .replace("\r\n", "\n");
+        self.raw(&text);
         self.nl();
+        self.directive_end = end;
+    }
+
+    /// Starts the line `leaf` continues an expression on: `indent`, the
+    /// output indentation of the expression's first line, then as many
+    /// columns as the source puts `leaf` past `source_base`.
+    fn start_continuation(&mut self, leaf: Node, indent: &str, source_base: usize) {
+        let line_start = self.src[..leaf.start_byte()]
+            .rfind('\n')
+            .map_or(0, |at| at + 1);
+        let past = self
+            .visual_width(&self.src[line_start..leaf.start_byte()])
+            .saturating_sub(source_base);
+        self.nl();
+        self.raw(indent);
+        self.raw(&" ".repeat(past));
+    }
+
+    /// The width of the indentation of the source line holding `byte`.
+    fn source_indent(&self, byte: usize) -> usize {
+        let start = self.src[..byte].rfind('\n').map_or(0, |at| at + 1);
+        let line = &self.src[start..];
+        let end = line
+            .find(|c: char| c != ' ' && c != '\t')
+            .unwrap_or(line.len());
+        self.visual_width(&line[..end])
+    }
+
+    /// The width of `text`, a line's start, with tabs to the next stop of
+    /// the indent width.
+    fn visual_width(&self, text: &str) -> usize {
+        let tab = usize::from(self.config.indent.width).max(1);
+        text.chars().fold(0, |col, c| match c {
+            '\t' => (col / tab + 1) * tab,
+            _ => col + 1,
+        })
+    }
+
+    /// Whether `comment` follows code on its line in the source, which it
+    /// then describes: it stays on that code's line.
+    fn is_trailing_comment(&self, comment: Node) -> bool {
+        self.follows_code(comment.start_byte())
+    }
+
+    /// Whether code comes before `byte` on its line in the source.
+    fn follows_code(&self, byte: usize) -> bool {
+        let line_start = self.src[..byte].rfind('\n').map_or(0, |at| at + 1);
+        !self.src[line_start..byte].trim().is_empty()
+    }
+
+    /// Emits `comment`: on the line of the code before it if it follows
+    /// that code in the source, or else on its own line. Returns whether
+    /// code follows it on its line in the source, which then follows it
+    /// here: the output ends with a space, or otherwise a line break.
+    fn emit_list_comment(&mut self, comment: Node) -> bool {
+        self.emit_comment_at(comment.byte_range())
+    }
+
+    /// `emit_list_comment` for the comment at `range` in the source.
+    fn emit_comment_at(&mut self, range: std::ops::Range<usize>) -> bool {
+        let src = self.src;
+        let text = src[range.clone()].trim_end_matches(['\r', '\n']);
+        if self.follows_code(range.start) && !self.out.trim().is_empty() {
+            if self.out.ends_with('\n') {
+                self.out.pop();
+            }
+            self.at_bol = false;
+            self.space();
+        } else {
+            self.ensure_nl();
+            self.emit_indent();
+        }
+        self.raw(text);
+        let rest = src[range.end..].split('\n').next();
+        let leads = !text.starts_with("//") && rest.is_some_and(|rest| !rest.trim().is_empty());
+        if leads {
+            self.space();
+        } else {
+            self.nl();
+        }
+        leads
     }
 
     // ── Function definition ───────────────────────────────────────────────────
@@ -597,6 +690,13 @@ impl<'a> Fmt<'a> {
     // ── Compound body ─────────────────────────────────────────────────────────
 
     fn emit_compound_body(&mut self, node: Node) {
+        // A comment an enclosing statement passed down waits for its body.
+        let enclosing_comment = self.body_comment.take();
+        self.emit_compound_items(node);
+        self.body_comment = enclosing_comment;
+    }
+
+    fn emit_compound_items(&mut self, node: Node) {
         let mut cursor = node.walk();
         let children: Vec<Node> = node.children(&mut cursor).collect();
 
@@ -619,25 +719,19 @@ impl<'a> Fmt<'a> {
 
         let mut i = start_i;
         let mut first_stmt = true;
+        // Whether the last child was a comment the next one follows on
+        // its line.
+        let mut held = false;
         while i < end_i {
             let child = children[i];
             let kind = child.kind();
             let blanks = self.source_blanks(prev_end, child.start_byte());
+            let after_comment = std::mem::take(&mut held);
 
             // Check if the next sibling is a same-line trailing comment.
             let trailing_comment: Option<Node> = if kind != "comment" && i + 1 < end_i {
                 let next = children[i + 1];
-                if next.kind() == "comment" {
-                    let stmt_end_line = self.src[..child.end_byte()].lines().count();
-                    let cmt_line = self.src[..next.start_byte()].lines().count();
-                    if stmt_end_line == cmt_line {
-                        Some(next)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                (next.kind() == "comment" && self.is_trailing_comment(next)).then_some(next)
             } else {
                 None
             };
@@ -697,11 +791,7 @@ impl<'a> Fmt<'a> {
                 }
                 "comment" => {
                     self.emit_blank_lines(blanks);
-                    self.ensure_nl();
-                    self.emit_indent();
-                    let text = self.node_text(child).trim_end_matches(['\r', '\n']);
-                    self.raw(text);
-                    self.nl();
+                    held = self.emit_list_comment(child);
                 }
                 _ => {
                     // Apply blank_line_after_var_decl_block.
@@ -721,8 +811,9 @@ impl<'a> Fmt<'a> {
 
                     let emit_blanks = if force_blank { blanks.max(1) } else { blanks };
 
-                    if is_null_stmt(child) && self.out.ends_with('}') {
+                    if (is_null_stmt(child) && self.out.ends_with('}')) || after_comment {
                         // Null stmt right after `}`: emit `;` inline (funky: `};`).
+                        // After a comment on its line, the statement follows it.
                     } else {
                         self.emit_blank_lines(emit_blanks);
                         if !is_null_stmt(child) {
@@ -738,11 +829,15 @@ impl<'a> Fmt<'a> {
                         // else: null stmt at BOL → column 0, no indent.
                     }
                     let is_first_block = first_stmt && child.kind() == "compound_statement";
+                    self.body_comment =
+                        trailing_comment.map(|cmt| (child.end_byte(), cmt.byte_range()));
                     if is_first_block {
                         self.emit_brace_ctx_other_compound(child);
                     } else {
                         self.emit_statement(child);
                     }
+                    // A body inside the statement took the comment.
+                    let taken = trailing_comment.is_some() && self.body_comment.take().is_none();
 
                     // After emitting, prepare for next statement in decl block.
                     if self.decl_block_active {
@@ -754,13 +849,15 @@ impl<'a> Fmt<'a> {
                     // unconditionally emitting their own newline; strip it so
                     // the comment lands on the same line.
                     if let Some(cmt) = trailing_comment {
-                        if self.out.ends_with('\n') {
-                            self.out.pop();
-                            self.at_bol = false;
+                        if !taken {
+                            if self.out.ends_with('\n') {
+                                self.out.pop();
+                                self.at_bol = false;
+                            }
+                            self.space();
+                            self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
+                            self.nl();
                         }
-                        self.space();
-                        self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
-                        self.nl();
                         prev_end = cmt.end_byte();
                         first_stmt = false;
                         i += 2;
@@ -1042,8 +1139,19 @@ impl<'a> Fmt<'a> {
         if body.is_some_and(|b| b.kind() != "else_clause") || !comments.is_empty() {
             let inject = self.config.braces.add_braces_to_if;
             let body = body.filter(|b| b.kind() != "else_clause");
-            self.emit_control_body(comments, body, inject);
             i += comments.len() + usize::from(body.is_some());
+            // Comments after the body on its last line stay with it.
+            let tail = children[i..]
+                .iter()
+                .take_while(|n| n.kind() == "comment" && self.is_trailing_comment(**n))
+                .count();
+            let tail = if body.is_some() {
+                &children[i..i + tail]
+            } else {
+                &[]
+            };
+            self.emit_control_body(comments, body, tail, inject);
+            i += tail.len();
         }
 
         // else clause, after any comments between it and the body
@@ -1052,8 +1160,7 @@ impl<'a> Fmt<'a> {
             match child.kind() {
                 "else_clause" => self.emit_else_clause(child),
                 "comment" => {
-                    self.ensure_nl();
-                    self.emit_comment_standalone(child);
+                    self.emit_list_comment(child);
                 }
                 _ => {}
             }
@@ -1086,7 +1193,7 @@ impl<'a> Fmt<'a> {
             }
             _ => {
                 let inject = self.config.braces.add_braces_to_if;
-                self.emit_control_body(comments, body, inject);
+                self.emit_control_body(comments, body, &[], inject);
             }
         }
     }
@@ -1102,6 +1209,9 @@ impl<'a> Fmt<'a> {
             self.space();
         }
         self.raw("(");
+        // A clause the source starts on a new line does there, aligned
+        // with the first.
+        let clause_col = self.current_col();
 
         let mut i = 0;
         // Skip "for" and "("
@@ -1137,9 +1247,13 @@ impl<'a> Fmt<'a> {
                     }
                 }
                 _ if in_for_header => {
-                    // Before emitting: if previous output ends with `;`, add space
-                    // (happens when init is a declaration that includes its own `;`).
-                    if self.out.ends_with(';') {
+                    if self.src[children[i - 1].end_byte()..child.start_byte()].contains('\n') {
+                        let kept = self.out.trim_end_matches(' ').len();
+                        self.out.truncate(kept);
+                        self.nl();
+                        self.raw(&" ".repeat(clause_col));
+                    } else if self.out.ends_with(';') {
+                        // The init is a declaration, which includes its own `;`.
                         self.space();
                     }
                     self.emit_expr_node(child);
@@ -1151,7 +1265,7 @@ impl<'a> Fmt<'a> {
 
         let (comments, body) = control_body(&children[body_at..]);
         let inject = self.config.braces.add_braces_to_for;
-        self.emit_control_body(comments, body, inject);
+        self.emit_control_body(comments, body, &[], inject);
         let _ = in_for_header;
     }
 
@@ -1187,7 +1301,7 @@ impl<'a> Fmt<'a> {
             i += 1;
             let (comments, body) = control_body(&children[i..]);
             let inject = self.config.braces.add_braces_to_for;
-            self.emit_control_body(comments, body, inject);
+            self.emit_control_body(comments, body, &[], inject);
         }
     }
 
@@ -1217,7 +1331,7 @@ impl<'a> Fmt<'a> {
 
         let (comments, body) = control_body(&children[i..]);
         let inject = self.config.braces.add_braces_to_while;
-        self.emit_control_body(comments, body, inject);
+        self.emit_control_body(comments, body, &[], inject);
     }
 
     fn emit_do_statement(&mut self, node: Node) {
@@ -1267,11 +1381,16 @@ impl<'a> Fmt<'a> {
         // Emit body
         if let Some(body) = body_opt {
             if body.kind() == "compound_statement" {
-                self.space();
+                // The comments come before the `{`, as they do in the source.
+                self.emit_comments_placed(comments);
+                if self.at_bol {
+                    self.emit_indent();
+                } else {
+                    self.space();
+                }
                 self.raw("{");
                 self.nl();
                 self.depth += 1;
-                self.emit_comments_standalone(comments);
                 self.emit_compound_body(body);
                 self.depth -= 1;
                 self.ensure_nl();
@@ -1281,24 +1400,29 @@ impl<'a> Fmt<'a> {
             } else {
                 // No brace injection for do-while bodies; funky keeps body at same depth.
                 self.nl();
-                self.emit_comments_standalone(comments);
-                self.emit_indent();
+                self.emit_comments_placed(comments);
+                if self.at_bol {
+                    self.emit_indent();
+                }
                 self.emit_statement(body);
                 self.ensure_nl();
                 self.emit_indent();
             }
         } else if !comments.is_empty() {
             self.nl();
-            self.emit_comments_standalone(comments);
-            self.emit_indent();
+            self.emit_comments_placed(comments);
+            if self.at_bol {
+                self.emit_indent();
+            }
         }
         if !trailing.is_empty() {
             let kept = self.out.trim_end_matches([' ', '\t']).len();
             self.out.truncate(kept);
             self.at_bol = self.out.is_empty() || self.out.ends_with('\n');
-            self.ensure_nl();
-            self.emit_comments_standalone(trailing);
-            self.emit_indent();
+            self.emit_comments_placed(trailing);
+            if self.at_bol {
+                self.emit_indent();
+            }
         }
 
         self.raw("while");
@@ -1420,11 +1544,7 @@ impl<'a> Fmt<'a> {
                     self.emit_preproc(child);
                 }
                 "comment" => {
-                    self.ensure_nl();
-                    self.emit_indent();
-                    let text = self.node_text(child).trim_end_matches(['\r', '\n']);
-                    self.raw(text);
-                    self.nl();
+                    self.emit_list_comment(child);
                 }
                 _ => {
                     self.ensure_nl();
@@ -1480,9 +1600,14 @@ impl<'a> Fmt<'a> {
 
         // Case body is indented one level deeper than the case label.
         self.depth += 1;
+        let enclosing_comment = self.body_comment.take();
+        // Whether the last child was a comment the next one follows on
+        // its line.
+        let mut held = false;
         while i < children.len() {
             let child = children[i];
             let blanks = self.source_blanks(prev_end, child.start_byte());
+            let after_comment = std::mem::take(&mut held);
             if damaged(child) {
                 let last = verbatim_run(self.src, &children, i);
                 self.emit_verbatim(child.start_byte(), children[last].end_byte(), blanks);
@@ -1491,27 +1616,51 @@ impl<'a> Fmt<'a> {
                 continue;
             }
             self.emit_blank_lines(blanks);
-            self.ensure_nl();
-            // Null statements are at column 0 (funky invariant).
-            if !is_null_stmt(child) {
-                self.emit_indent();
+            if child.kind() == "comment" {
+                held = self.emit_list_comment(child);
+                prev_end = child.end_byte();
+                i += 1;
+                continue;
             }
+            if !after_comment {
+                self.ensure_nl();
+                // Null statements are at column 0 (funky invariant).
+                if !is_null_stmt(child) {
+                    self.emit_indent();
+                }
+            }
+            // A comment after the statement on its line goes with the
+            // statement's last body, inside any braces added around it.
+            let trailing = children
+                .get(i + 1)
+                .filter(|n| n.kind() == "comment" && self.is_trailing_comment(**n));
+            self.body_comment = trailing.map(|cmt| (child.end_byte(), cmt.byte_range()));
             self.emit_statement(child);
-            prev_end = child.end_byte();
+            if trailing.is_some() && self.body_comment.take().is_none() {
+                i += 1;
+            }
+            prev_end = children[i].end_byte();
             i += 1;
         }
+        self.body_comment = enclosing_comment;
         self.depth -= 1;
     }
 
     // ── Control body (with optional brace injection) ──────────────────────────
 
-    /// A control statement's body, and the `comments` before it, which
-    /// lead the body.
-    fn emit_control_body(&mut self, comments: &[Node], body: Option<Node>, inject: bool) {
+    /// Emits a control statement's body, after the `comments` before it,
+    /// and with the `tail` of comments that follow it on its last line.
+    fn emit_control_body(
+        &mut self,
+        comments: &[Node],
+        body: Option<Node>,
+        tail: &[Node],
+        inject: bool,
+    ) {
         let Some(node) = body else {
             self.nl();
             self.depth += 1;
-            self.emit_comments_standalone(comments);
+            self.emit_comments_placed(comments);
             self.depth -= 1;
             return;
         };
@@ -1530,53 +1679,77 @@ impl<'a> Fmt<'a> {
                     self.raw("{}");
                     return;
                 }
-                self.space();
+                // The comments come before the `{`, as they do in the source.
+                self.emit_comments_placed(comments);
+                if self.at_bol {
+                    self.emit_indent();
+                } else {
+                    self.space();
+                }
                 self.raw("{");
                 self.nl();
                 self.depth += 1;
-                self.emit_comments_standalone(comments);
                 self.emit_compound_body(node);
                 self.depth -= 1;
                 self.ensure_nl();
                 self.emit_indent();
                 self.raw("}");
+                self.emit_comments_placed(tail);
             }
             _ if is_null_stmt(node) => {
                 // `if (x)\n;` — funky emits `;` at column 0 (no indent).
                 self.nl();
                 self.depth += 1;
-                self.emit_comments_standalone(comments);
+                self.emit_comments_placed(comments);
                 self.depth -= 1;
                 self.raw(";");
+                self.emit_comments_placed(tail);
+                self.emit_body_comment(node);
             }
             _ => {
-                if inject && should_inject(node) {
+                let inject = inject && should_inject(node);
+                if inject {
                     self.space();
                     self.raw("{");
-                    self.nl();
-                    self.depth += 1;
-                    self.emit_comments_standalone(comments);
+                }
+                self.nl();
+                self.depth += 1;
+                self.emit_comments_placed(comments);
+                if self.at_bol {
                     self.emit_indent();
-                    self.emit_statement(node);
-                    self.depth -= 1;
+                }
+                self.emit_statement(node);
+                self.emit_comments_placed(tail);
+                self.emit_body_comment(node);
+                self.depth -= 1;
+                if inject {
                     self.ensure_nl();
                     self.emit_indent();
                     self.raw("}");
-                } else {
-                    self.nl();
-                    self.depth += 1;
-                    self.emit_comments_standalone(comments);
-                    self.emit_indent();
-                    self.emit_statement(node);
-                    self.depth -= 1;
                 }
             }
         }
     }
 
-    fn emit_comments_standalone(&mut self, comments: &[Node]) {
+    /// Emits the comment after the control statement that ends where
+    /// `body` does, if any: `body` is that statement's last body.
+    fn emit_body_comment(&mut self, body: Node) {
+        if let Some((end, range)) = self.body_comment.take() {
+            if end == body.end_byte() {
+                self.emit_comment_at(range);
+            } else {
+                self.body_comment = Some((end, range));
+            }
+        }
+    }
+
+    /// Emits `comments` where the source has them: one that follows code
+    /// on its line on the output's last line, any other on its own line.
+    /// Code that follows the last on its line in the source follows it
+    /// here; otherwise the output ends with a line break.
+    fn emit_comments_placed(&mut self, comments: &[Node]) {
         for &comment in comments {
-            self.emit_comment_standalone(comment);
+            self.emit_list_comment(comment);
         }
     }
 
@@ -1822,10 +1995,7 @@ impl<'a> Fmt<'a> {
                     self.emit_preproc(child);
                 }
                 "comment" => {
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
-                    self.nl();
+                    self.emit_list_comment(child);
                 }
                 "access_specifier" => {
                     // access_specifier contains just the keyword; ":" is the next sibling.
@@ -2226,12 +2396,11 @@ impl<'a> Fmt<'a> {
             if child.kind() == "comment" {
                 continue;
             }
-            if i + 1 < end_i && children[i + 1].kind() == "comment" {
-                let field_end_line = self.src[..child.end_byte()].lines().count();
-                let cmt_line = self.src[..children[i + 1].start_byte()].lines().count();
-                if field_end_line == cmt_line {
-                    same_line_pairs.push((i, i + 1));
-                }
+            if i + 1 < end_i
+                && children[i + 1].kind() == "comment"
+                && self.is_trailing_comment(children[i + 1])
+            {
+                same_line_pairs.push((i, i + 1));
             }
         }
 
@@ -2258,12 +2427,9 @@ impl<'a> Fmt<'a> {
             self.emit_blank_lines(blanks);
 
             match kind {
+                // Not consumed as a field's aligned trailing comment.
                 "comment" => {
-                    // Stand-alone comment (not consumed as a trailing inline comment).
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
-                    self.nl();
+                    self.emit_list_comment(child);
                 }
                 k if is_preproc(k) => {
                     self.ensure_nl();
@@ -2354,10 +2520,7 @@ impl<'a> Fmt<'a> {
                     self.raw(",");
                 }
                 "comment" => {
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw(self.node_text(child).trim_end_matches(['\r', '\n']));
-                    self.nl();
+                    self.emit_list_comment(child);
                     prev_row = None;
                 }
                 _ => {
@@ -2532,10 +2695,19 @@ impl<'a> Fmt<'a> {
         // Multi-line: preserve source line groupings.
         // Elements on the same source row are kept on the same output line.
         self.raw("{");
+        // A comment after the `{` on its line stays there.
+        let mut start_i = 1; // skip `{`
+        if let Some(&comment) = children
+            .get(1)
+            .filter(|c| c.kind() == "comment" && self.is_trailing_comment(**c))
+        {
+            self.space();
+            self.raw(self.node_text(comment).trim_end_matches(['\r', '\n']));
+            start_i = 2;
+        }
         self.nl();
         self.depth += 1;
 
-        let start_i = 1; // skip `{`
         let end_i = if children.last().map(|n| n.kind()) == Some("}") {
             children.len() - 1
         } else {
@@ -2643,6 +2815,14 @@ impl<'a> Fmt<'a> {
 
         let mut after_directive = false;
         let mut recovered_initializer_depth = 0;
+        // A line break the source has outside brackets is kept, and the
+        // next line is indented as far past this output line's start as
+        // the source indents it past the first leaf's line.
+        let continuation_base = leaves.first().map(|first| {
+            let line = &self.out[self.out.rfind('\n').map_or(0, |at| at + 1)..];
+            let indent = &line[..line.len() - line.trim_start().len()];
+            (indent.to_string(), self.source_indent(first.start_byte()))
+        });
         for (i, &leaf) in leaves.iter().enumerate() {
             // A directive first in a list may prevent tree-sitter from
             // constructing initializer_list. Track assignment braces in this
@@ -2662,32 +2842,9 @@ impl<'a> Fmt<'a> {
             // expression leaves. Keep the complete logical line opaque.
             if in_initializer
                 && self.node_text(leaf).starts_with('#')
-                && self.src[self.src[..leaf.start_byte()]
-                    .rfind('\n')
-                    .map_or(0, |offset| offset + 1)..leaf.start_byte()]
-                    .trim()
-                    .is_empty()
+                && !self.follows_code(leaf.start_byte())
             {
-                let mut end = leaf.start_byte();
-                loop {
-                    end = self.src[end..]
-                        .find('\n')
-                        .map_or(self.src.len(), |offset| end + offset + 1);
-                    if end == self.src.len()
-                        || !self.src[..end]
-                            .trim_end_matches(['\r', '\n'])
-                            .ends_with('\\')
-                    {
-                        break;
-                    }
-                }
-                self.ensure_nl();
-                let text = self.src[leaf.start_byte()..end]
-                    .trim_end_matches(['\r', '\n'])
-                    .replace("\r\n", "\n");
-                self.raw(&text);
-                self.nl();
-                self.directive_end = end;
+                self.emit_initializer_directive(leaf);
                 after_directive = true;
                 continue;
             }
@@ -2793,10 +2950,16 @@ impl<'a> Fmt<'a> {
                 continue;
             }
 
-            let ws = self.ws_before(leaf, prev);
-            match ws {
-                Ws::None => {}
-                Ws::Space => self.space(),
+            if let Some((indent, source_base)) =
+                continuation_base.as_ref().filter(|_| source_has_nl)
+            {
+                self.start_continuation(leaf, indent, *source_base);
+            } else {
+                let ws = self.ws_before(leaf, prev);
+                match ws {
+                    Ws::None => {}
+                    Ws::Space => self.space(),
+                }
             }
             let text = self.node_text(leaf);
             self.raw(text);

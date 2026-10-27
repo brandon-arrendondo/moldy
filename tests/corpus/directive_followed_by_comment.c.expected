@@ -1,2 +1,3 @@
-#include <a.h> // whole-line comment
+#include <a.h>
+// whole-line comment
 int x;

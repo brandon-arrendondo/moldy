@@ -5,6 +5,35 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- Comments stay by the code they describe. Before, Moldy kept a
+  comment's text but could move it so that it described other code:
+  - C and C++: a comment after an enumerator moved onto the next line,
+    where it read as the next enumerator's (`MODE_A = 0, /* first mode
+    */` became `MODE_A = 0,` and a line `/* first mode */`); a comment
+    after `#endif` moved below it; a comment after `if (...)`, after a
+    statement in a body given braces, or after a `{` moved onto a line of
+    its own; and an expression written over several lines was joined
+    onto one, each comment running into the next operand (`x = a || /*
+    why a */b || /* why b */c;`). An expression now keeps the line
+    breaks it was written with, as `if` conditions and calls already
+    did, and so does a `for` header.
+  - Python: a comment on the line after `if ...:`, `def ...:` or another
+    clause moved up onto that line, and one after an opening bracket
+    (`f(  # type: ignore`) moved down to the next.
+  - Rust: a comment after a field, variant, attribute, match arm or
+    statement moved onto the next line.
+
+  A comment on the line after a top-level `#define` or `#pragma`, which
+  0.7.0 declined, is now formatted. The check every run makes now also
+  compares where each comment is among the code, so output that would
+  move a comment is declined (exit 3) instead of written. Some files
+  0.7.0 formatted by moving a comment are now declined, where Moldy
+  cannot yet lay out the code around the comment without moving it: a
+  comment inside a Python expression in parentheses or a comprehension,
+  and a C or C++ comment between a declaration's `=` and its value.
+
 ## [0.7.0] - 2026-10-27
 
 ### Fixed

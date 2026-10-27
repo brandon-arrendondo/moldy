@@ -234,7 +234,8 @@ The C, C++, Rust and Python formatters keep a statement that holds a
 syntax error as written and format the rest of the file; successful
 formatting does not validate syntax. C and C++ code inside a preprocessor
 conditional, such as an include guard, is always kept as written. Each run parses the output again and
-compares its tokens, comments and line structure with the input's; a file
+compares its tokens, comments, where each comment sits and line structure
+with the input's; a file
 whose code would change is left unchanged, named on standard error as not
 formatted, and the run exits with status 3. The JSON, YAML, Markdown, CMake and Bash formatters leave a
 file with any syntax error unchanged, name it on standard error as not

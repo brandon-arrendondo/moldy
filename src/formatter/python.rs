@@ -297,7 +297,24 @@ impl<'a> Fmt<'a> {
 
     fn emit_group(&mut self, group: &[Node], parent: Node) {
         let mut prev: Option<Node> = None;
-        for &child in group {
+        for (i, &child) in group.iter().enumerate() {
+            // A comment on a line of its own before a clause's block, which
+            // the grammar puts in the clause, starts the block's lines.
+            let opens_block = child.kind() == "comment"
+                && prev.is_some_and(|p| p.end_position().row < child.start_position().row)
+                && group[i + 1..]
+                    .iter()
+                    .find(|n| n.kind() != "comment")
+                    .is_some_and(|n| n.kind() == "block");
+            if opens_block {
+                self.ensure_nl();
+                self.depth += 1;
+                self.emit_indent();
+                self.depth -= 1;
+                self.emit_node(child);
+                prev = Some(child);
+                continue;
+            }
             match self.ws_before(child, prev, parent) {
                 Ws::None => {}
                 // PEP8 puts two spaces before an inline comment.
@@ -534,10 +551,11 @@ impl<'a> Fmt<'a> {
         self.raw(close);
     }
 
-    /// Emits a comment in a one-item-per-line list, after the item it
-    /// trailed in the source or on its own line, and returns its row.
+    /// Emits a comment in a one-item-per-line list, after the item or
+    /// opening bracket it trailed in the source or on its own line, and
+    /// returns its row.
     fn emit_list_comment(&mut self, comment: Node, last_row: usize) -> usize {
-        if comment.start_position().row == last_row && self.out.ends_with(",\n") {
+        if comment.start_position().row == last_row && self.out.ends_with('\n') {
             self.out.pop();
             self.raw("  ");
         } else {
@@ -596,6 +614,18 @@ mod tests {
     #[test]
     fn trailing_comment_stays_on_its_source_line() {
         assert_eq!(fmt("x = 1  # note\n"), "x = 1  # note\n");
+    }
+
+    #[test]
+    fn a_comment_that_opens_a_block_keeps_its_line() {
+        let src = "if a:\n    # why\n    x = 1\nelif b:  # other\n    y = 2\n";
+        assert_eq!(fmt(src), src);
+    }
+
+    #[test]
+    fn a_comment_after_an_opening_bracket_stays_there() {
+        let src = "x = f(  # type: ignore\n    aaaaaaaaaaaaaaaaaaaa,\n    bbbbbbbbbbbbbbbbbbbb,  # bee\n    cccccccccccccccccccc,\n)\n";
+        assert_eq!(fmt(src), src);
     }
 
     #[test]

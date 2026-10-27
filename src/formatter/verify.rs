@@ -98,8 +98,12 @@ pub(super) fn check_tokens(
             return Err(unverified(row));
         }
     }
-    if let Some(i) = align(&before, &after, edits) {
+    let mut pairs = Vec::new();
+    if let Some(i) = align(&before, &after, edits, &mut pairs) {
         return Err(unverified(row_at(&before.code, i)));
+    }
+    if let Some(row) = moved_comment(&before, &after, &pairs) {
+        return Err(unverified(row));
     }
     // The same tokens can still read differently, if the output breaks
     // them into lines the grammar cannot read. The input token at the
@@ -118,14 +122,20 @@ pub(super) fn check_tokens(
 /// Matches `after`'s code tokens to `before`'s, in one pass: each output
 /// token must be the next input token, a brace `edits` allows, or follow
 /// input tokens `edits` allows to be deleted. Returns the index of the
-/// input token where they part, or `None` if they match.
+/// input token where they part, or `None` if they match. Adds the `seq`s
+/// of each input token and the output token it matches to `pairs`.
 ///
 /// One pass decides it exactly. A brace is added only where an input
 /// body starts, which no input brace can, and closed by the brace of the
 /// same block, which must come right after the body's last token; a
 /// deleted token is skipped only where the texts differ, and output
 /// tokens are never deleted nor input tokens inserted.
-fn align(before: &Tokens, after: &Tokens, edits: &Edits) -> Option<usize> {
+fn align(
+    before: &Tokens,
+    after: &Tokens,
+    edits: &Edits,
+    pairs: &mut Vec<(usize, usize)>,
+) -> Option<usize> {
     let (old, new) = (&before.code, &after.code);
     // The input tokens since the last match: the end of the body that
     // each open added brace holds, and the block that will close it.
@@ -164,6 +174,9 @@ fn align(before: &Tokens, after: &Tokens, edits: &Edits) -> Option<usize> {
         }
         match (b, a) {
             (Some(b), Some(a)) if b.text == a.text => {
+                if b.seq != usize::MAX && a.seq != usize::MAX {
+                    pairs.push((b.seq, a.seq));
+                }
                 last_seq = b.seq;
                 i += 1;
                 j += 1;
@@ -177,6 +190,38 @@ fn align(before: &Tokens, after: &Tokens, edits: &Edits) -> Option<usize> {
     } else {
         Some(i)
     }
+}
+
+/// The row of the first comment the output moves off the code it
+/// describes. Each comment must stay between the same two code tokens,
+/// on the line of the one before it only if it was, and on the line of
+/// the one after it only if it was. Tokens an edit adds or deletes are
+/// passed over; `pairs` holds the `seq`s of the input and output tokens
+/// that match.
+fn moved_comment(before: &Tokens, after: &Tokens, pairs: &[(usize, usize)]) -> Option<usize> {
+    // Where the comment is among the matched tokens, and whether it is
+    // on the line of the one before it and of the one after it.
+    let place = |tokens: &Tokens, comment: &Token, side: fn(&(usize, usize)) -> usize| {
+        let at = pairs.partition_point(|p| side(p) < comment.seq);
+        let row_of = |i: Option<usize>| i.and_then(|i| pairs.get(i)).map(|p| tokens.rows[side(p)]);
+        let joins_before = comment.trailing
+            && row_of(at.checked_sub(1)).is_some_and(|(_, end)| end == comment.row);
+        let joins_after =
+            comment.leading && row_of(Some(at)).is_some_and(|(start, _)| start == comment.end_row);
+        (
+            at,
+            joins_before,
+            joins_after,
+            comment.trailing,
+            comment.leading,
+        )
+    };
+    before
+        .comments
+        .iter()
+        .zip(&after.comments)
+        .find(|(b, a)| place(before, b, |p| p.0) != place(after, a, |p| p.1))
+        .map(|(b, _)| b.row)
 }
 
 /// The row of a Python shebang or encoding line that the output moves,
@@ -247,7 +292,8 @@ struct Token<'a> {
     col: usize,
     end_row: usize,
     /// The token's place among the text's tokens, before layout tokens
-    /// are added (`usize::MAX` for those).
+    /// are added (`usize::MAX` for those). For a comment, the place of
+    /// the code token after it.
     seq: usize,
     /// A trailing comma that changes nothing; see `Edits::trailing_commas`.
     optional_comma: bool,
@@ -256,11 +302,17 @@ struct Token<'a> {
     /// For a brace of a block that is a control statement's body, the
     /// block's id and the control statement's kind.
     block: Option<(usize, &'static str)>,
+    /// A comment that follows code on its line.
+    trailing: bool,
+    /// A comment that code follows on its last line.
+    leading: bool,
 }
 
 struct Tokens<'a> {
     code: Vec<Token<'a>>,
     comments: Vec<Token<'a>>,
+    /// The first and last row of each code token, by `seq`.
+    rows: Vec<(usize, usize)>,
     /// The control statement bodies not in braces, by the `seq` of their
     /// first token: the `seq` of their last, and the control's kind.
     bodies: HashMap<usize, Vec<(usize, &'static str)>>,
@@ -279,11 +331,19 @@ fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Toke
         out: Tokens {
             code: Vec::new(),
             comments: Vec::new(),
+            rows: Vec::new(),
             bodies: HashMap::new(),
         },
     };
     walk.push_tokens(root);
     let mut out = walk.out;
+    out.rows = out.code.iter().map(|t| (t.row, t.end_row)).collect();
+    for comment in &mut out.comments {
+        comment.leading = out
+            .code
+            .get(comment.seq)
+            .is_some_and(|t| t.row == comment.end_row);
+    }
     out.code = match layout {
         Layout::Free => out.code,
         Layout::Directives => mark_directive_ends(out.code, source),
@@ -388,7 +448,9 @@ impl<'a> Walk<'a> {
                 self.push(doc);
             } else {
                 let words: Vec<&str> = text.split_whitespace().collect();
-                let comment = token(Cow::Owned(words.join(" ")), start, end_row);
+                let mut comment = token(Cow::Owned(words.join(" ")), start, end_row);
+                comment.seq = self.out.code.len();
+                comment.trailing = self.out.code.last().is_some_and(|t| t.end_row == start.row);
                 self.out.comments.push(comment);
             }
             return None;
@@ -513,6 +575,8 @@ fn token(text: Cow<'_, str>, start: tree_sitter::Point, end_row: usize) -> Token
         optional_comma: false,
         opens_block: false,
         block: None,
+        trailing: false,
+        leading: false,
         kind: "",
     }
 }
@@ -868,22 +932,82 @@ mod tests {
     }
 
     #[test]
-    fn comments_may_move_but_not_change() {
+    fn comments_may_not_change() {
         let source = "void f(int a)\n{\n    if (a) // why\n    {\n        g();\n    }\n}\n";
+        let kept = "void f(int a)\n{\n    if (a) // why\n    {\n        g();\n    }\n}\n";
+        assert!(passes("c", &Edits::NONE, source, kept));
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            source,
+            &kept.replace("why", "who")
+        ));
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            source,
+            &kept.replace("// why\n", "\n")
+        ));
+    }
+
+    #[test]
+    fn comments_stay_by_the_code_they_describe() {
+        let source = "void f(int a)\n{\n    if (a) // why\n    {\n        g();\n    }\n}\n";
+        // Into the braces, past the `{`.
         let moved = "void f(int a)\n{\n    if (a) {\n        // why\n        g();\n    }\n}\n";
-        assert!(passes("c", &Edits::NONE, source, moved));
+        assert!(!passes("c", &Edits::NONE, source, moved));
+        // A trailing comment moved onto the next line, before the next
+        // enumerator, and back.
+        let enumerators = "enum e {\n    A, /* first */\n    B\n};\n";
+        let split = "enum e {\n    A,\n    /* first */\n    B\n};\n";
+        assert!(!passes("c", &Edits::NONE, enumerators, split));
+        assert!(!passes("c", &Edits::NONE, split, enumerators));
+        // Off a directive's line.
         assert!(!passes(
             "c",
             &Edits::NONE,
-            source,
-            &moved.replace("why", "who")
+            "#ifdef X\nint a;\n#endif /* X */\nint b;\n",
+            "#ifdef X\nint a;\n#endif\n/* X */\nint b;\n"
+        ));
+        // A line joined across a comment, which then leads code.
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            "int x = a || /* why a */\n    b;\n",
+            "int x = a || /* why a */b;\n"
+        ));
+        // Code joined after a comment that leads it, or split from it.
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "int x =   /* one */ 1 ;\n",
+            "int x = /* one */ 1;\n"
         ));
         assert!(!passes(
             "c",
             &Edits::NONE,
-            source,
-            &moved.replace("// why\n", "")
+            "int x = /* one */ 1;\n",
+            "int x = /* one */\n    1;\n"
         ));
+        // Comment columns may change.
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "int a; /* a */\nint bb;   /* b */\n",
+            "int a;  /* a */\nint bb; /* b */\n"
+        ));
+    }
+
+    #[test]
+    fn added_braces_do_not_move_comments() {
+        let source = "void f(int a)\n{\n    if (a) /* why */\n        g(); /* g */\n    h();\n}\n";
+        let output =
+            "void f(int a)\n{\n    if (a) { /* why */\n        g(); /* g */\n    }\n    h();\n}\n";
+        assert!(passes("c", &braces(), source, output));
+        // After the `}`, the comment is still after `g();` on its line.
+        let after =
+            "void f(int a)\n{\n    if (a) { /* why */\n        g();\n    } /* g */\n    h();\n}\n";
+        assert!(!passes("c", &braces(), source, after));
     }
 
     #[test]

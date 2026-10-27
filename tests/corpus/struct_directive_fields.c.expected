@@ -3,7 +3,6 @@ struct s {
     int b;
 #ifdef X
 	int c;
-#endif
-    /* X */
+#endif /* X */
     int d;
 };

@@ -10,8 +10,7 @@ int my_strlen(const char *s)
 {
     int len = 0;
 
-    while (s[len] != '\0') {
-        /* scan until terminator */
+    while (s[len] != '\0') { /* scan until terminator */
         len++;
     }
     return len; // return the final count

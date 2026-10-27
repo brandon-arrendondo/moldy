@@ -1,0 +1,38 @@
+typedef enum {
+    MODE_A = 0, /* first mode */
+    MODE_B,     /* second mode */
+    MODE_C      /* last mode, no comma */
+} mode_e;
+
+static const int table[3] = {
+    1,  /* one */
+    2,  /* two */
+    3   /* three */
+};
+
+int f(void)
+{
+#ifdef FEATURE
+    return 1;
+#endif /* FEATURE */
+    return 0;
+}
+
+int g(int a, int b, int c)
+{
+    int x;
+
+    x =
+        a ||    /* why a */
+        b ||    /* why b */
+        c;      /* why c */
+    x = a &&
+        (b || c);
+    for (x = 0;
+         x < a;
+         x++) {
+        x = a ? b
+              : c;
+    }
+    return x;
+}

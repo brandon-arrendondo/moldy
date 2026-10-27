@@ -1,7 +1,9 @@
 # ADR-0007: Moldy checks that code reads the same; layout follows the reference tool
 
 **Status:** Accepted, 2026-10-25 (Brandon Arrendondo). Proposed
-2026-10-24. Implemented for C, C++, Rust and Python.
+2026-10-24. Implemented for C, C++, Rust and Python. [Amendment
+1](#amendment-1-a-comment-stays-by-the-code-it-describes), comment
+placement: Proposed 2026-10-27, implemented for C, C++, Rust and Python.
 
 ## Context
 
@@ -125,3 +127,63 @@ no trailing comma when its parameters are split, for that reason.
   the `rustfmt-compat` preset closer to rustfmt starts with method chains,
   then rustfmt's widths per construct, then a closure or block as the last
   argument.
+
+## Amendment 1: a comment stays by the code it describes
+
+**Status:** Proposed, 2026-10-27. Implemented for C, C++, Rust and
+Python.
+
+### Context
+
+Where a comment sits is part of what it says. In
+
+```c
+typedef enum {
+    MODE_A = 0, /* first mode */
+    MODE_B,     /* second mode */
+} mode_e;
+```
+
+each comment describes the enumerator on its line. Moved onto the next
+line, the same text describes the next enumerator. `#endif /* FEATURE */`
+names the conditional it closes; on a line of its own after the `#endif`,
+it reads as a note on the statement that follows. Joining
+`x = a || /* why a */` with the next line puts the comment in front of
+`b`, and the reader can no longer tell which operand it explains.
+
+The check above compares comments by their text and order. A formatter
+that made these moves passed it, since the code and the comment text were
+unchanged, while each comment came to describe different code. Run on a
+real embedded C project, one release made 31 such moves.
+
+### Decision
+
+Correctness includes where each comment is. For C, C++, Rust and Python,
+the check compares, for every comment:
+
+- the code tokens on either side of it, so that no code moves past a
+  comment;
+- whether code comes before it on its line, a trailing comment, and if
+  so, that the code token before it is still on its line;
+- whether code follows it on its line, and if so, that the code token
+  after it is still on its line.
+
+A comment's column, its indentation and the blank lines around it are
+layout and may change. A token a formatting option adds or removes, such
+as a brace around a control statement's body, is not code a comment moved
+past, but a trailing comment must still share its line with the code it
+followed. Output that moves a comment is declined, as output that changes
+code is.
+
+Where a layout rule would move a comment, the comment's place wins: an
+expression is not joined onto one line across a comment, and a trailing
+comment does not get a line of its own.
+
+### Consequences
+
+- A comment never moves past code, and a trailing comment stays trailing.
+  Where a formatter cannot yet lay out the code around a comment without
+  moving it, the file is declined rather than formatted.
+- Where the reference tool moves a comment, Moldy differs from it. funky,
+  for example, puts a comment that follows a `{` on a line of its own;
+  Moldy keeps it after the `{`.

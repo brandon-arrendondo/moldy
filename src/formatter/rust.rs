@@ -251,6 +251,20 @@ impl<'a> Fmt<'a> {
         }
         match node.kind() {
             "line_comment" | "block_comment" => {
+                // A comment after code on its line in the source describes
+                // that code: it stays on the line the code ended, where the
+                // caller started a new line for it.
+                let start = node.start_byte();
+                let line_start = self.src[..start].rfind('\n').map_or(0, |at| at + 1);
+                let out_line = self.out.rfind('\n').map_or(0, |at| at + 1);
+                if !self.src[line_start..start].trim().is_empty()
+                    && out_line > 0
+                    && self.out[out_line..].trim().is_empty()
+                    && !self.out[..out_line - 1].ends_with('\n')
+                {
+                    self.out.truncate(out_line - 1);
+                    self.raw(" ");
+                }
                 self.raw(self.node_text(node).trim_end_matches('\n'));
             }
             "string_literal" | "raw_string_literal" | "char_literal" => {
@@ -747,6 +761,16 @@ mod tests {
         let src = "fn f(a: u32 {\n    a\n}\nfn g()  ->  u32 { 1 }\n";
         let out = fmt_with(&Config::default(), src);
         assert_eq!(out, "fn f(a: u32 {\n    a\n}\nfn g() -> u32 {\n    1\n}\n");
+    }
+
+    #[test]
+    fn a_trailing_comment_stays_on_its_line() {
+        let src = "enum E {\n    A = 1, // one\n    B,     // two\n}\n\n#[test] // why\nfn f() -> u32 {\n    g(); // call\n    1 // one\n}\n";
+        let out = fmt_with(&Config::default(), src);
+        assert_eq!(
+            out,
+            "enum E {\n    A = 1, // one\n    B, // two\n}\n\n#[test] // why\nfn f() -> u32 {\n    g(); // call\n    1 // one\n}\n"
+        );
     }
 
     #[test]
