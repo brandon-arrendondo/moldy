@@ -151,10 +151,16 @@ it reads as a note on the statement that follows. Joining
 `x = a || /* why a */` with the next line puts the comment in front of
 `b`, and the reader can no longer tell which operand it explains.
 
+A blank line places a comment too. A comment directly above a statement
+leads that statement; with a blank line between them, it reads as a note
+on the code above it or as a heading for what follows. Putting the blank
+line after a block of declarations between a comment and the statement
+it leads turns the comment into a trailer of the declarations.
+
 The check above compares comments by their text and order. A formatter
 that made these moves passed it, since the code and the comment text were
-unchanged, while each comment came to describe different code. Run on a
-real embedded C project, one release made 31 such moves.
+unchanged, while each comment came to describe different code. These moves
+were seen on real code.
 
 ### Decision
 
@@ -166,18 +172,31 @@ the check compares, for every comment:
 - whether code comes before it on its line, a trailing comment, and if
   so, that the code token before it is still on its line;
 - whether code follows it on its line, and if so, that the code token
-  after it is still on its line.
+  after it is still on its line. Code may move onto a comment's line only
+  if it was there. It may leave it if the comment also follows code,
+  which the comment then describes, or if it is a closing bracket, which
+  a comment does not describe;
+- for a comment on a line of its own, the blank lines around it. Moldy
+  never puts a blank line between such a comment and the code or
+  comment after it, and never removes the blank line that separates it
+  from the code above, unless that code opens a block. It may add one
+  above it.
 
-A comment's column, its indentation and the blank lines around it are
-layout and may change. A token a formatting option adds or removes, such
-as a brace around a control statement's body, is not code a comment moved
-past, but a trailing comment must still share its line with the code it
-followed. Output that moves a comment is declined, as output that changes
+A comment's column and its indentation are layout and may change, and
+so is the number of blank lines around it, within those rules. A token a
+formatting option removes is passed over. A brace a formatting option adds
+around a control statement's body bounds that body, and a comment may not
+cross it: a comment before the body's first statement goes inside the
+added `{`, a comment after the body's last statement on its line goes
+inside the added `}`, and any other comment after the body stays outside
+it. Output that moves a comment is declined, as output that changes
 code is.
 
 Where a layout rule would move a comment, the comment's place wins: an
-expression is not joined onto one line across a comment, and a trailing
-comment does not get a line of its own.
+expression is not joined onto one line across a comment, a trailing
+comment does not get a line of its own, and a blank line a rule adds
+before a statement, such as the one after a block of declarations or
+around a Python `def`, goes above the comments that lead the statement.
 
 ### Consequences
 

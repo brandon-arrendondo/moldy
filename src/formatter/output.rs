@@ -108,3 +108,13 @@ pub(super) trait OutputOps<'a>: Sized {
         }
     }
 }
+
+/// Whether `text`, from one token's start to another's, has a line of
+/// only whitespace between its first and last lines.
+pub(super) fn has_blank_line(text: &str) -> bool {
+    let lines: Vec<&str> = text.split('\n').collect();
+    lines.len() > 2
+        && lines[1..lines.len() - 1]
+            .iter()
+            .any(|l| l.trim().is_empty())
+}

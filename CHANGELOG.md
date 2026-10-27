@@ -16,23 +16,48 @@ What changed for users of Moldy, newest release first. See
     statement in a body given braces, or after a `{` moved onto a line of
     its own; and an expression written over several lines was joined
     onto one, each comment running into the next operand (`x = a || /*
-    why a */b || /* why b */c;`). An expression now keeps the line
-    breaks it was written with, as `if` conditions and calls already
-    did, and so does a `for` header.
+    why a */b || /* why b */c;`).
   - Python: a comment on the line after `if ...:`, `def ...:` or another
     clause moved up onto that line, and one after an opening bracket
     (`f(  # type: ignore`) moved down to the next.
   - Rust: a comment after a field, variant, attribute, match arm or
     statement moved onto the next line.
+  - A blank line Moldy adds before a statement went between the
+    statement and the comments that lead it: the one after a C block of
+    declarations, and the ones around a Python `def` or `class`. The
+    comment then read as a note on the code above. The blank line now
+    goes above the comments.
 
   A comment on the line after a top-level `#define` or `#pragma`, which
   0.7.0 declined, is now formatted. The check every run makes now also
-  compares where each comment is among the code, so output that would
+  compares where each comment is among the code, and the blank lines
+  around it, so output that would
   move a comment is declined (exit 3) instead of written. Some files
   0.7.0 formatted by moving a comment are now declined, where Moldy
-  cannot yet lay out the code around the comment without moving it: a
-  comment inside a Python expression in parentheses or a comprehension,
-  and a C or C++ comment between a declaration's `=` and its value.
+  cannot yet lay out the code around the comment without moving it:
+  - Python: a comment inside an expression in parentheses or square
+    brackets that is not a list of items, such as a condition split
+    over lines, a subscript, a comprehension, or strings joined by
+    being written next to each other.
+  - C and C++: a comment inside a declaration, between its `=` and its
+    value or before its `;`; a comment on a line of its own between
+    `else` and the `if` or `{` after it, or between a function's
+    declarator and its `{`; a comment inside strings joined by being
+    written next to each other; and a comment in a `case` body that
+    also holds a preprocessor conditional.
+  - Rust: a comment on a line of its own between an `if` condition or
+    `else` and its `{`.
+
+### Changed
+
+- C and C++: an expression keeps the line breaks it is written with, as
+  `if` conditions and calls already did, and so does a `for` header,
+  whether or not a comment sits between the lines. A continuation line
+  keeps its indentation past the statement's first line; one that starts
+  with an operator is indented at least one level. Before, Moldy joined
+  such an expression onto one line (`x = a +` and `b;` became `x = a +
+  b;`, and a return type on its own line, `char *` and `name(void)`,
+  became `char *name(void)`). funky keeps them too.
 
 ## [0.7.0] - 2026-10-27
 

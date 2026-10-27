@@ -1,0 +1,68 @@
+int f(int a)
+{
+    int b;
+
+    /* Explains the check below. */
+    if (a > 0) {
+        b = 1;
+    }
+    else {
+        b = 0;
+    }
+    return b;
+}
+
+int g(int a)
+{
+    int b;
+
+    /* No blank line above: one is added above the comment. */
+    /* A second comment. */
+    if (a > 0) {
+        b = 1;
+    }
+    else {
+        b = 0;
+    }
+    return b;
+}
+
+int h(int a)
+{
+    int b;
+    /* About the next declaration. */
+    int c = a;
+
+    b = c;
+    return b;
+}
+
+int k(int a)
+{
+    int b = a;
+
+    /* about the if */
+    if (b) {
+        b++;
+    }
+    return b;
+}
+
+int m(int a)
+{
+    int b = a;
+
+    // about return
+    return b;
+}
+
+int n(int a)
+{
+    int b;
+    /* about c */
+    int c;
+
+    /* about the statement after the declarations */
+    b = c = a;
+    return b;
+}

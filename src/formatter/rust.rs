@@ -257,13 +257,28 @@ impl<'a> Fmt<'a> {
                 let start = node.start_byte();
                 let line_start = self.src[..start].rfind('\n').map_or(0, |at| at + 1);
                 let out_line = self.out.rfind('\n').map_or(0, |at| at + 1);
-                if !self.src[line_start..start].trim().is_empty()
-                    && out_line > 0
-                    && self.out[out_line..].trim().is_empty()
-                    && !self.out[..out_line - 1].ends_with('\n')
-                {
+                let at_line_start = out_line > 0 && self.out[out_line..].trim().is_empty();
+                let follows_code = !self.src[line_start..start].trim().is_empty();
+                if follows_code && at_line_start && !self.out[..out_line - 1].ends_with('\n') {
                     self.out.truncate(out_line - 1);
                     self.raw(" ");
+                } else if !follows_code && at_line_start {
+                    // A blank line above a comment on a line of its own
+                    // stays, unless the line above opens a block or list.
+                    let above = &self.src[..line_start.saturating_sub(1)];
+                    let blank_above = line_start > 0
+                        && above[above.rfind('\n').map_or(0, |at| at + 1)..]
+                            .trim()
+                            .is_empty();
+                    let before = &self.out[..out_line - 1];
+                    let last_line = &before[before.rfind('\n').map_or(0, |at| at + 1)..];
+                    if blank_above
+                        && !before.ends_with('\n')
+                        && !before.trim().is_empty()
+                        && !last_line.trim_end().ends_with(['{', '(', '['])
+                    {
+                        self.out.insert(out_line - 1, '\n');
+                    }
                 }
                 self.raw(self.node_text(node).trim_end_matches('\n'));
             }

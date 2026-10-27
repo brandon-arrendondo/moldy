@@ -26,7 +26,7 @@
 //     source already has a trailing comma) is not implemented — the break
 //     decision is width-only.
 
-use super::output::OutputOps;
+use super::output::{has_blank_line, OutputOps};
 use crate::config::Config;
 use crate::error::MoldyError;
 use tree_sitter::Node;
@@ -215,12 +215,44 @@ impl<'a> Fmt<'a> {
     /// PEP8 forces exactly `blank_line_cap()` blank lines around a
     /// def/class-like statement (unless it's the first statement in the
     /// sequence); otherwise preserved source blank lines are used, capped.
-    fn blanks_before(&self, prev: Node, cur: Node) -> usize {
-        if is_def_like(cur) || is_def_like(prev) {
+    /// Comments on lines of their own directly above a def or class lead
+    /// it: the forced blank lines go above them, and none come between
+    /// them and the def. `next` is the first statement after `cur` that
+    /// is not a comment.
+    fn blanks_before(&self, prev: Node, cur: Node, next: Option<Node>) -> usize {
+        let leads = |n: Node| n.kind() == "comment" && !self.follows_code(n);
+        let def_after = leads(cur)
+            && !leads(prev)
+            && next.is_some_and(|next| {
+                is_def_like(next) && !has_blank_line(&self.src[cur.start_byte()..next.start_byte()])
+            });
+        let attached = leads(prev) && self.source_blanks(prev.end_byte(), cur.start_byte()) == 0;
+        if is_def_like(prev) || (is_def_like(cur) && !attached) || def_after {
             self.blank_line_cap()
         } else {
             self.source_blanks(prev.end_byte(), cur.start_byte())
         }
+    }
+
+    /// Whether `node` starts its line in the source, and the line above
+    /// holds only whitespace.
+    fn blank_line_above(&self, node: Node) -> bool {
+        if self.follows_code(node) {
+            return false;
+        }
+        let line_start = self.src[..node.start_byte()].rfind('\n');
+        line_start.is_some_and(|end| {
+            let above = &self.src[..end];
+            let start = above.rfind('\n').map_or(0, |at| at + 1);
+            above[start..].trim().is_empty()
+        })
+    }
+
+    /// Whether code comes before `node` on its line in the source.
+    fn follows_code(&self, node: Node) -> bool {
+        let start = node.start_byte();
+        let line_start = self.src[..start].rfind('\n').map_or(0, |at| at + 1);
+        !self.src[line_start..start].trim().is_empty()
     }
 
     /// `items` is a module body or a `block`'s statements; `is_class_body`
@@ -234,7 +266,8 @@ impl<'a> Fmt<'a> {
         while i < items.len() {
             let item = items[i];
             if let Some(p) = prev {
-                let mut blanks = self.blanks_before(p, item);
+                let next = items[i..].iter().copied().find(|n| n.kind() != "comment");
+                let mut blanks = self.blanks_before(p, item, next);
                 if force_blank_after_docstring {
                     blanks = blanks.max(1);
                     force_blank_after_docstring = false;
@@ -308,6 +341,9 @@ impl<'a> Fmt<'a> {
                     .is_some_and(|n| n.kind() == "block");
             if opens_block {
                 self.ensure_nl();
+                if prev.is_some_and(|p| p.kind() == "comment") && self.blank_line_above(child) {
+                    self.emit_blank_lines(1);
+                }
                 self.depth += 1;
                 self.emit_indent();
                 self.depth -= 1;
@@ -325,6 +361,11 @@ impl<'a> Fmt<'a> {
                 Ws::Space => self.space(),
                 Ws::Newline => {
                     self.ensure_nl();
+                    // A blank line separates a comment from the code above
+                    // it, as it did in the source.
+                    if child.kind() == "comment" && self.blank_line_above(child) {
+                        self.emit_blank_lines(1);
+                    }
                     self.emit_indent();
                 }
                 Ws::NewlineBare => self.ensure_nl(),
@@ -533,6 +574,9 @@ impl<'a> Fmt<'a> {
                 _ => (&group[..], &group[..0], &group[..0]),
             };
             for &comment in lead {
+                if self.blank_line_above(comment) && !self.out.trim_end().ends_with(open) {
+                    self.emit_blank_lines(1);
+                }
                 last_row = self.emit_list_comment(comment, last_row);
             }
             if let Some(end) = core.last() {
@@ -614,6 +658,30 @@ mod tests {
     #[test]
     fn trailing_comment_stays_on_its_source_line() {
         assert_eq!(fmt("x = 1  # note\n"), "x = 1  # note\n");
+    }
+
+    #[test]
+    fn comments_before_a_def_stay_with_it() {
+        let src = "import os\n# about f\n# more\ndef f():\n    pass\n";
+        assert_eq!(
+            fmt(src),
+            "import os\n\n\n# about f\n# more\ndef f():\n    pass\n"
+        );
+    }
+
+    #[test]
+    fn blank_lines_go_above_a_def_s_comments() {
+        let src = "import os\n\n\n# about f\ndef f():\n    pass\n\n\nclass C:\n    x = 1\n    # about n\n    def n(self):\n        pass\n";
+        assert_eq!(
+            fmt(src),
+            "import os\n\n\n# about f\ndef f():\n    pass\n\n\nclass C:\n    x = 1\n\n    # about n\n    def n(self):\n        pass\n"
+        );
+    }
+
+    #[test]
+    fn a_blank_line_above_a_comment_is_kept() {
+        let src = "if a:\n    # first\n\n    # second\n    x = 1\n\n# about b\nelif b:\n    y = [\n        1,\n\n        # two\n        2,\n    ]\n";
+        assert_eq!(fmt(src), src);
     }
 
     #[test]

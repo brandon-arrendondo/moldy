@@ -3,7 +3,7 @@
 // Goal: produce output identical to funky for all C/C++ files.
 // Reference: ../funky/src/formatter.rs  (config is intentionally identical)
 
-use super::output::OutputOps;
+use super::output::{has_blank_line, OutputOps};
 use crate::config::{Config, PointerAlign, SpaceOption};
 use crate::error::MoldyError;
 use tree_sitter::Node;
@@ -370,7 +370,9 @@ impl<'a> Fmt<'a> {
 
     /// Starts the line `leaf` continues an expression on: `indent`, the
     /// output indentation of the expression's first line, then as many
-    /// columns as the source puts `leaf` past `source_base`.
+    /// columns as the source puts `leaf` past `source_base`. A line that
+    /// starts with an operator is indented at least one level, so that
+    /// it does not read as a statement of its own.
     fn start_continuation(&mut self, leaf: Node, indent: &str, source_base: usize) {
         let line_start = self.src[..leaf.start_byte()]
             .rfind('\n')
@@ -380,7 +382,12 @@ impl<'a> Fmt<'a> {
             .saturating_sub(source_base);
         self.nl();
         self.raw(indent);
-        self.raw(&" ".repeat(past));
+        if past == 0 && (is_binary_op_kind(leaf.kind()) || matches!(leaf.kind(), "?" | ":")) {
+            let unit = self.indent_str_at(1);
+            self.raw(&unit);
+        } else {
+            self.raw(&" ".repeat(past));
+        }
     }
 
     /// The width of the indentation of the source line holding `byte`.
@@ -409,6 +416,28 @@ impl<'a> Fmt<'a> {
         self.follows_code(comment.start_byte())
     }
 
+    /// Starts a blank line if the source has one above the line holding
+    /// `byte` and the output has none, unless the output's last line
+    /// opens a block or list. The output must be at the start of a line.
+    fn keep_blank_line_above(&mut self, byte: usize) {
+        let line_start = self.src[..byte].rfind('\n');
+        let blank_above = line_start.is_some_and(|end| {
+            let above = &self.src[..end];
+            above[above.rfind('\n').map_or(0, |at| at + 1)..]
+                .trim()
+                .is_empty()
+        });
+        let last_line = self.out.trim_end_matches('\n');
+        let last_line = &last_line[last_line.rfind('\n').map_or(0, |at| at + 1)..];
+        if blank_above
+            && !self.out.ends_with("\n\n")
+            && !self.out.trim().is_empty()
+            && !last_line.trim_end().ends_with(['{', '(', '['])
+        {
+            self.nl();
+        }
+    }
+
     /// Whether code comes before `byte` on its line in the source.
     fn follows_code(&self, byte: usize) -> bool {
         let line_start = self.src[..byte].rfind('\n').map_or(0, |at| at + 1);
@@ -435,6 +464,7 @@ impl<'a> Fmt<'a> {
             self.space();
         } else {
             self.ensure_nl();
+            self.keep_blank_line_above(range.start);
             self.emit_indent();
         }
         self.raw(text);
@@ -790,7 +820,28 @@ impl<'a> Fmt<'a> {
                     self.emit_preproc(child);
                 }
                 "comment" => {
-                    self.emit_blank_lines(blanks);
+                    // Comments on lines of their own before the statement
+                    // that ends a declaration block lead that statement: the
+                    // blank line after the block goes above them.
+                    let leads_first_statement = self.decl_block_active
+                        && self.decl_block_at_stmt_start
+                        && self.decl_block_saw_decl
+                        && !self.is_trailing_comment(child)
+                        && children[i..end_i]
+                            .iter()
+                            .find(|n| n.kind() != "comment")
+                            .is_some_and(|n| {
+                                !is_declaration_node(*n)
+                                    && !has_blank_line(
+                                        &self.src[child.start_byte()..n.start_byte()],
+                                    )
+                            });
+                    if leads_first_statement {
+                        self.decl_block_active = false;
+                        self.emit_blank_lines(blanks.max(1));
+                    } else {
+                        self.emit_blank_lines(blanks);
+                    }
                     held = self.emit_list_comment(child);
                 }
                 _ => {
@@ -2737,6 +2788,9 @@ impl<'a> Fmt<'a> {
             let row = child.start_position().row;
             if prev_row.map(|r| r != row).unwrap_or(false) {
                 self.ensure_nl();
+                if child.kind() == "comment" {
+                    self.keep_blank_line_above(child.start_byte());
+                }
                 row_start = true;
             }
             if row_start {

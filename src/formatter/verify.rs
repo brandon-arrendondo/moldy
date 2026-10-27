@@ -98,11 +98,11 @@ pub(super) fn check_tokens(
             return Err(unverified(row));
         }
     }
-    let mut pairs = Vec::new();
-    if let Some(i) = align(&before, &after, edits, &mut pairs) {
+    let (mut pairs, mut braces_added) = (Vec::new(), Vec::new());
+    if let Some(i) = align(&before, &after, edits, &mut pairs, &mut braces_added) {
         return Err(unverified(row_at(&before.code, i)));
     }
-    if let Some(row) = moved_comment(&before, &after, &pairs) {
+    if let Some(row) = moved_comment(&before, &after, &pairs, &braces_added) {
         return Err(unverified(row));
     }
     // The same tokens can still read differently, if the output breaks
@@ -123,7 +123,8 @@ pub(super) fn check_tokens(
 /// token must be the next input token, a brace `edits` allows, or follow
 /// input tokens `edits` allows to be deleted. Returns the index of the
 /// input token where they part, or `None` if they match. Adds the `seq`s
-/// of each input token and the output token it matches to `pairs`.
+/// of each input token and the output token it matches to `pairs`, and
+/// the `seq` of each brace added to `added`, with whether it opens.
 ///
 /// One pass decides it exactly. A brace is added only where an input
 /// body starts, which no input brace can, and closed by the brace of the
@@ -135,6 +136,7 @@ fn align(
     after: &Tokens,
     edits: &Edits,
     pairs: &mut Vec<(usize, usize)>,
+    braces_added: &mut Vec<(usize, bool)>,
 ) -> Option<usize> {
     let (old, new) = (&before.code, &after.code);
     // The input tokens since the last match: the end of the body that
@@ -155,6 +157,7 @@ fn align(
                             return Some(i);
                         }
                         added.pop();
+                        braces_added.push((a.seq, false));
                         j += 1;
                         continue;
                     }
@@ -164,6 +167,7 @@ fn align(
                     match body.and_then(|bodies| bodies.iter().find(|(_, c)| *c == control)) {
                         Some(&(end, _)) => {
                             added.push((end, id));
+                            braces_added.push((a.seq, true));
                             j += 1;
                             continue;
                         }
@@ -195,10 +199,20 @@ fn align(
 /// The row of the first comment the output moves off the code it
 /// describes. Each comment must stay between the same two code tokens,
 /// on the line of the one before it only if it was, and on the line of
-/// the one after it only if it was. Tokens an edit adds or deletes are
-/// passed over; `pairs` holds the `seq`s of the input and output tokens
-/// that match.
-fn moved_comment(before: &Tokens, after: &Tokens, pairs: &[(usize, usize)]) -> Option<usize> {
+/// the one after it only if it was. A comment on a line of its own keeps
+/// a blank line before it, unless the block opens there, and gains none
+/// after it. Tokens an edit deletes are passed over; `pairs` holds the
+/// `seq`s of the input and output tokens that match. A brace an edit
+/// adds, in `braces_added`, bounds the body it is added to: a comment
+/// before the body's first token comes after the added `{`, one after
+/// the body's last token on its line before the added `}`, and any
+/// other after it.
+fn moved_comment(
+    before: &Tokens,
+    after: &Tokens,
+    pairs: &[(usize, usize)],
+    braces_added: &[(usize, bool)],
+) -> Option<usize> {
     // Where the comment is among the matched tokens, and whether it is
     // on the line of the one before it and of the one after it.
     let place = |tokens: &Tokens, comment: &Token, side: fn(&(usize, usize)) -> usize| {
@@ -208,19 +222,41 @@ fn moved_comment(before: &Tokens, after: &Tokens, pairs: &[(usize, usize)]) -> O
             && row_of(at.checked_sub(1)).is_some_and(|(_, end)| end == comment.row);
         let joins_after =
             comment.leading && row_of(Some(at)).is_some_and(|(start, _)| start == comment.end_row);
-        (
-            at,
-            joins_before,
-            joins_after,
-            comment.trailing,
-            comment.leading,
-        )
+        (at, joins_before, comment.trailing, joins_after)
+    };
+    // Code after a comment may come onto its line only if it was there,
+    // and leave it only if the comment follows code too, which it then
+    // describes.
+    let leads_wrongly = |b: &Token, a: &Token| {
+        (a.leading && !b.leading) || (b.leading && !a.leading && !b.trailing)
+    };
+    // Whether the output puts `comment` on the wrong side of a brace
+    // added between the matched tokens around it.
+    let crosses_brace = |b: &Token, a: &Token| {
+        let at = pairs.partition_point(|p| p.1 < a.seq);
+        let from = at.checked_sub(1).map_or(0, |i| pairs[i].1);
+        let to = pairs.get(at).map_or(usize::MAX, |p| p.1);
+        let first = braces_added.partition_point(|&(seq, _)| seq < from);
+        braces_added[first..]
+            .iter()
+            .take_while(|&&(seq, _)| seq < to)
+            .any(|&(seq, opens)| (seq < a.seq) != (opens || !b.trailing))
     };
     before
         .comments
         .iter()
         .zip(&after.comments)
-        .find(|(b, a)| place(before, b, |p| p.0) != place(after, a, |p| p.1))
+        .find(|(b, a)| {
+            let (b_place, a_place) = (place(before, b, |p| p.0), place(after, a, |p| p.1));
+            b_place.0 != a_place.0
+                || b_place.1 != a_place.1
+                || b_place.2 != a_place.2
+                || (b.leading && a.leading && b_place.3 != a_place.3)
+                || leads_wrongly(b, a)
+                || (b.blank_before && !a.blank_before)
+                || (a.blank_after && !b.blank_after)
+                || crosses_brace(b, a)
+        })
         .map(|(b, _)| b.row)
 }
 
@@ -304,8 +340,15 @@ struct Token<'a> {
     block: Option<(usize, &'static str)>,
     /// A comment that follows code on its line.
     trailing: bool,
-    /// A comment that code follows on its last line.
+    /// A comment that code other than a closing bracket follows on its
+    /// last line.
     leading: bool,
+    /// A comment on a line of its own with a blank line between it and
+    /// the code or comment before it.
+    blank_before: bool,
+    /// A comment on a line of its own with a blank line between it and
+    /// the code or comment after it.
+    blank_after: bool,
 }
 
 struct Tokens<'a> {
@@ -338,11 +381,42 @@ fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Toke
     walk.push_tokens(root);
     let mut out = walk.out;
     out.rows = out.code.iter().map(|t| (t.row, t.end_row)).collect();
-    for comment in &mut out.comments {
-        comment.leading = out
-            .code
-            .get(comment.seq)
-            .is_some_and(|t| t.row == comment.end_row);
+    let blank: Vec<bool> = source.split('\n').map(|l| l.trim().is_empty()).collect();
+    let any_blank = |rows: std::ops::Range<usize>| rows.into_iter().any(|r| blank[r]);
+    for i in 0..out.comments.len() {
+        let (before, rest) = out.comments.split_at_mut(i);
+        let (comment, after) = rest.split_first_mut().expect("i is in range");
+        let seq = comment.seq;
+        // A closing bracket after a comment on its line may move to the
+        // next line, or onto the comment's, as it describes nothing.
+        comment.leading = out.code.get(seq).is_some_and(|t| {
+            t.row == comment.end_row && !matches!(t.text.as_ref(), "}" | ")" | "]")
+        });
+        if comment.trailing {
+            continue;
+        }
+        // The code or comment on either side.
+        // A blank line after the `{` or `:` that opens a block, or the
+        // bracket that opens a list, places nothing, so one that ends its
+        // line is passed over.
+        let opens = |p: usize| {
+            let t = &out.code[p];
+            matches!(t.text.as_ref(), "{" | ":" | "(" | "[")
+                && out.code.get(p + 1).is_none_or(|n| n.row > t.end_row)
+        };
+        let previous = match before.last() {
+            Some(c) if c.seq == seq => Some(c.end_row),
+            _ => seq
+                .checked_sub(1)
+                .filter(|&p| !opens(p))
+                .map(|p| out.code[p].end_row),
+        };
+        let next = match after.first() {
+            Some(c) if c.seq == seq => Some(c.row),
+            _ => out.code.get(seq).map(|t| t.row),
+        };
+        comment.blank_before = previous.is_some_and(|p| any_blank(p + 1..comment.row));
+        comment.blank_after = next.is_some_and(|n| any_blank(comment.end_row + 1..n));
     }
     out.code = match layout {
         Layout::Free => out.code,
@@ -577,6 +651,8 @@ fn token(text: Cow<'_, str>, start: tree_sitter::Point, end_row: usize) -> Token
         block: None,
         trailing: false,
         leading: false,
+        blank_before: false,
+        blank_after: false,
         kind: "",
     }
 }
@@ -986,8 +1062,23 @@ mod tests {
         assert!(!passes(
             "c",
             &Edits::NONE,
-            "int x = /* one */ 1;\n",
-            "int x = /* one */\n    1;\n"
+            "int x;\n/* one */ int y;\n",
+            "int x;\n/* one */\nint y;\n"
+        ));
+        // After code too, the comment describes that code, so what
+        // follows it may take a line of its own; a closing bracket may
+        // leave or join its line.
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "struct p { int x; /* x coord */ int y; };\n",
+            "struct p {\n    int x; /* x coord */\n    int y;\n};\n"
+        ));
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "struct p q = { .x = 1,\n    .y = 2 /* dy */ };\n",
+            "struct p q = { .x = 1,\n    .y = 2 /* dy */\n};\n"
         ));
         // Comment columns may change.
         assert!(passes(
@@ -995,6 +1086,61 @@ mod tests {
             &Edits::NONE,
             "int a; /* a */\nint bb;   /* b */\n",
             "int a;  /* a */\nint bb; /* b */\n"
+        ));
+    }
+
+    #[test]
+    fn a_comment_keeps_its_blank_lines() {
+        let source = "void f(int a)\n{\n    int b;\n\n    /* why */\n    g(a);\n}\n";
+        assert!(passes("c", &Edits::NONE, source, source));
+        // A blank line put between a comment and the code it leads.
+        let split = "void f(int a)\n{\n    int b;\n\n    /* why */\n\n    g(a);\n}\n";
+        assert!(!passes("c", &Edits::NONE, source, split));
+        // Removed there, it still describes the code below it.
+        assert!(passes("c", &Edits::NONE, split, source));
+        // The blank line above it removed.
+        let joined = "void f(int a)\n{\n    int b;\n    /* why */\n    g(a);\n}\n";
+        assert!(!passes("c", &Edits::NONE, source, joined));
+        // One added above it.
+        assert!(passes("c", &Edits::NONE, joined, source));
+    }
+
+    #[test]
+    fn a_comment_may_not_cross_an_added_brace() {
+        // Into the body after its last statement.
+        assert!(!passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a)\n        g();\n    /* about h */\n    h();\n}\n",
+            "void f(int a)\n{\n    if (a) {\n        g();\n        /* about h */\n    }\n    h();\n}\n"
+        ));
+        // Out of the body, before its `{`.
+        assert!(!passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a)\n        /* about g */\n        g();\n}\n",
+            "void f(int a)\n{\n    if (a)\n    /* about g */\n    {\n        g();\n    }\n}\n"
+        ));
+        // Before the `else`, into the if's body.
+        assert!(!passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a)\n        g();\n    // about else\n    else\n        h();\n}\n",
+            "void f(int a)\n{\n    if (a) {\n        g();\n        // about else\n    }\n    else {\n        h();\n    }\n}\n"
+        ));
+        // After the `}` on the statement's line.
+        assert!(!passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a) g(); /* g */\n}\n",
+            "void f(int a)\n{\n    if (a) {\n        g(); } /* g */\n}\n"
+        ));
+        // Where they belong.
+        assert!(passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a)\n        g();\n    // about else\n    else\n        h();\n}\n",
+            "void f(int a)\n{\n    if (a) {\n        g();\n    }\n    // about else\n    else {\n        h();\n    }\n}\n"
         ));
     }
 
