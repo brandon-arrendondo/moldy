@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-27
+
 ### Fixed
 
 - Comments stay by the code they describe. Before, Moldy kept a
