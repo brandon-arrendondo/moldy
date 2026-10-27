@@ -21,11 +21,15 @@ What changed for users of Moldy, newest release first. See
   `a.c: not formatted (C could not be formatted without changing its
   meaning (line 12))`, and the run exits 3. See the usage guide for what
   is compared and the edits formatting may make. The check makes these
-  formatters about three times slower. Some files 0.6.0
+  formatters about three times slower, and they use about three and a
+  half times the memory. Some files 0.6.0
   formatted are now declined because their output changed code, so
   `--check` reports them: a function that declares a `struct` (0.6.0 gave
-  it a second `;`), and a comment on the line after a top-level `#define`
-  or `#pragma` (0.6.0 moved it onto the directive line).
+  it a second `;`), a comment on the line after a top-level `#define`
+  or `#pragma` (0.6.0 moved it onto the directive line), and a Python
+  encoding line or shebang after blank lines at the top of the file
+  (0.6.0 removed the blank lines, which put the line where Python reads
+  it).
 - C and C++: a comment between `if (...)`, `else`, `for (...)`, `while
   (...)` or `do` and its body no longer deletes the body:
   `if (a) /* why */ return 0;` lost its `return 0;`. The comment now

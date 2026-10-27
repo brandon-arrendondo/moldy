@@ -180,20 +180,26 @@ fn align(before: &Tokens, after: &Tokens, edits: &Edits) -> Option<usize> {
 }
 
 /// The row of a Python shebang or encoding line that the output moves,
-/// or code the output puts before it. Python reads them only on the
-/// first two lines, with no code before them.
+/// or puts code before, or a comment the output moves into the place of
+/// one. Python reads them only on the first two lines, with no code
+/// before them, so a comment that moves into that place takes effect.
 fn moved_header_line(before: &Tokens, after: &Tokens) -> Option<usize> {
-    let code_by = |tokens: &Tokens, row: usize| tokens.code.first().is_some_and(|t| t.row <= row);
+    let header = |tokens: &Tokens, comment: &Token| {
+        let row = comment.row;
+        row <= 1
+            && tokens.code.first().is_none_or(|t| t.row > row)
+            && ((row == 0 && comment.text.starts_with("#!"))
+                || comment.text.contains("coding:")
+                || comment.text.contains("coding="))
+    };
     before
         .comments
         .iter()
         .zip(&after.comments)
-        .take_while(|(b, _)| b.row <= 1 && !code_by(before, b.row))
+        .take_while(|(b, a)| b.row <= 1 || a.row <= 1)
         .find(|(b, a)| {
-            let header = (b.row == 0 && b.text.starts_with("#!"))
-                || b.text.contains("coding:")
-                || b.text.contains("coding=");
-            header && (a.row != b.row || code_by(after, a.row))
+            let (was, is) = (header(before, b), header(after, a));
+            (was || is) && (was != is || a.row != b.row)
         })
         .map(|(b, _)| b.row)
 }
@@ -276,7 +282,7 @@ fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Toke
             bodies: HashMap::new(),
         },
     };
-    walk.push_tokens(root, &Place::default());
+    walk.push_tokens(root);
     let mut out = walk.out;
     out.code = match layout {
         Layout::Free => out.code,
@@ -287,14 +293,31 @@ fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Toke
 }
 
 /// Where a node is in its tree. Asking tree-sitter for a node's parent or
-/// next sibling walks down from the root, so the walk carries them.
+/// siblings walks down from the root, so the walk carries them.
 #[derive(Default)]
 struct Place<'t, 'n> {
     parent: Option<Node<'t>>,
     grandparent: Option<Node<'t>>,
+    /// The siblings before the node.
+    previous: &'n [Node<'t>],
     /// The siblings after the node.
     next: &'n [Node<'t>],
     /// Whether the node is in a macro definition or a macro's tokens.
+    in_macro: bool,
+}
+
+/// A node whose children the walk is in.
+struct Open<'t> {
+    node: Node<'t>,
+    parent: Option<Node<'t>>,
+    children: Vec<Node<'t>>,
+    /// The next child.
+    i: usize,
+    /// The end of the text the walk has passed.
+    at: usize,
+    at_point: tree_sitter::Point,
+    /// The index of the node's first code token.
+    first: usize,
     in_macro: bool,
 }
 
@@ -310,9 +333,44 @@ impl<'a> Walk<'a> {
         self.out.code.push(token);
     }
 
-    fn push_tokens(&mut self, node: Node, place: &Place) {
+    /// Pushes the tokens of the tree at `root`. The walk keeps its own
+    /// stack, so no nesting exhausts the thread's.
+    fn push_tokens(&mut self, root: Node) {
+        let mut stack: Vec<Open> = self.enter(root, &Place::default()).into_iter().collect();
+        while let Some(open) = stack.last_mut() {
+            let Some(&child) = open.children.get(open.i) else {
+                let open = stack.pop().expect("the loop holds an open node");
+                self.leave(open);
+                continue;
+            };
+            push_gap(
+                self.source,
+                open.at,
+                open.at_point,
+                child.start_byte(),
+                &mut self.out.code,
+            );
+            if child.end_byte() > open.at {
+                (open.at, open.at_point) = (child.end_byte(), child.end_position());
+            }
+            let place = Place {
+                parent: Some(open.node),
+                grandparent: open.parent,
+                previous: &open.children[..open.i],
+                next: &open.children[open.i + 1..],
+                in_macro: open.in_macro,
+            };
+            let inner = self.enter(child, &place);
+            open.i += 1;
+            stack.extend(inner);
+        }
+    }
+
+    /// Pushes the tokens of `node` if it has no children to walk, or
+    /// returns it opened.
+    fn enter<'t>(&mut self, node: Node<'t>, place: &Place<'t, '_>) -> Option<Open<'t>> {
         if node.start_byte() == node.end_byte() {
-            return;
+            return None;
         }
         let source = self.source;
         let kind = node.kind();
@@ -333,57 +391,72 @@ impl<'a> Walk<'a> {
                 let comment = token(Cow::Owned(words.join(" ")), start, end_row);
                 self.out.comments.push(comment);
             }
-            return;
+            return None;
         }
         if is_literal(kind) {
             self.push(token(without_cr(text), start, end_row));
-            return;
+            return None;
         }
         if kind == "preproc_arg" {
             push_words(text, start.row, &mut self.out.code);
-            return;
+            return None;
         }
         if node.child_count() == 0 {
-            if !text.trim().is_empty() {
-                let mut leaf = token(without_cr(text), start, end_row);
-                leaf.kind = kind;
-                leaf.optional_comma = is_optional_comma(node, place);
-                leaf.opens_block =
-                    kind == ":" && place.next.first().is_some_and(|n| n.kind() == "block");
-                if self.braces && matches!(kind, "{" | "}") {
-                    leaf.block = place.parent.and_then(|block| {
-                        let control = body_of(block, place.grandparent)
-                            .filter(|_| block.kind() == "compound_statement");
-                        control.map(|control| (block.id(), control))
-                    });
-                }
-                self.push(leaf);
+            if text.trim().is_empty() {
+                return None;
             }
-            return;
-        }
-        let first = self.out.code.len();
-        let (mut at, mut at_point) = (node.start_byte(), start);
-        let mut cursor = node.walk();
-        let children: Vec<Node> = node.children(&mut cursor).collect();
-        let in_macro = place.in_macro || kind.starts_with("token_") || kind == "macro_definition";
-        for (i, &child) in children.iter().enumerate() {
-            push_gap(source, at, at_point, child.start_byte(), &mut self.out.code);
-            let child_place = Place {
-                parent: Some(node),
-                grandparent: place.parent,
-                next: &children[i + 1..],
-                in_macro,
+            // The C grammar reads `-1` as one number, which C reads as
+            // `-` and `1`, the same as `- 1`.
+            let (sign, number) = match text.as_bytes()[0] {
+                b'-' | b'+' if kind == "number_literal" => text.split_at(1),
+                _ => ("", text),
             };
-            self.push_tokens(child, &child_place);
-            if child.end_byte() > at {
-                (at, at_point) = (child.end_byte(), child.end_position());
+            if !sign.is_empty() {
+                self.push(token(Cow::Borrowed(sign), start, end_row));
             }
+            let mut leaf = token(without_cr(number), start, end_row);
+            leaf.kind = kind;
+            leaf.optional_comma = is_optional_comma(node, place);
+            leaf.opens_block =
+                kind == ":" && place.next.first().is_some_and(|n| n.kind() == "block");
+            if self.braces && matches!(kind, "{" | "}") {
+                leaf.block = place.parent.and_then(|block| {
+                    let control = body_of(block, place.grandparent)
+                        .filter(|_| block.kind() == "compound_statement");
+                    control.map(|control| (block.id(), control))
+                });
+            }
+            self.push(leaf);
+            return None;
         }
-        push_gap(source, at, at_point, node.end_byte(), &mut self.out.code);
+        let mut cursor = node.walk();
+        Some(Open {
+            node,
+            parent: place.parent,
+            children: node.children(&mut cursor).collect(),
+            i: 0,
+            at: node.start_byte(),
+            at_point: start,
+            first: self.out.code.len(),
+            in_macro: place.in_macro || kind.starts_with("token_") || kind == "macro_definition",
+        })
+    }
+
+    /// Pushes the text after `open`'s last child, and notes `open` if it
+    /// is a body that could be given braces.
+    fn leave(&mut self, open: Open) {
+        let node = open.node;
+        push_gap(
+            self.source,
+            open.at,
+            open.at_point,
+            node.end_byte(),
+            &mut self.out.code,
+        );
         let last = self.out.code.len();
-        if self.braces && last > first && kind != "compound_statement" {
-            if let Some(control) = body_of(node, place.parent) {
-                let bodies = self.out.bodies.entry(first).or_default();
+        if self.braces && last > open.first && node.kind() != "compound_statement" {
+            if let Some(control) = body_of(node, open.parent) {
+                let bodies = self.out.bodies.entry(open.first).or_default();
                 bodies.push((last - 1, control));
             }
         }
@@ -458,8 +531,9 @@ fn is_literal(kind: &str) -> bool {
 /// closing bracket or at the end of a Rust `where` clause. Not one in a
 /// macro definition or a macro's token tree, where it is matched or
 /// expanded as written, the comma that makes a one-element tuple (`(a,)`),
-/// or one in a Python subscript or type subscript (`x[a,]`, `tuple[a,]`),
-/// whose index it makes a tuple.
+/// one in a Python subscript or type subscript (`x[a,]`, `tuple[a,]`),
+/// whose index it makes a tuple, or one after a Rust struct base or rest
+/// pattern (`..base`, `..`), which may not have one.
 fn is_optional_comma(node: Node, place: &Place) -> bool {
     if node.kind() != "," || node.is_missing() || place.in_macro {
         return false;
@@ -469,6 +543,18 @@ fn is_optional_comma(node: Node, place: &Place) -> bool {
     };
     let kind = parent.kind();
     let next = place.next.iter().find(|n| !n.kind().ends_with("comment"));
+    let previous = place
+        .previous
+        .iter()
+        .rfind(|n| !n.kind().ends_with("comment"));
+    if previous.is_some_and(|p| {
+        matches!(
+            p.kind(),
+            "base_field_initializer" | "remaining_field_pattern"
+        )
+    }) {
+        return false;
+    }
     // A Rust `where` clause ends at the `{` or `;` after it.
     let closes = match next {
         Some(next) => matches!(next.kind(), ")" | "]" | "}" | ">"),
@@ -1077,6 +1163,87 @@ mod tests {
         // After code, it is an ordinary comment.
         let late = "\"\"\"Doc.\"\"\"\n# -*- coding: utf-8 -*-\nx = 1\n";
         assert!(passes("python", &python(), late, late));
+    }
+
+    #[test]
+    fn a_python_encoding_line_moved_up_is_found() {
+        // Two lines down it is a comment; on line 1 it decodes the file.
+        assert!(!passes(
+            "python",
+            &python(),
+            "\n\n# -*- coding: latin-1 -*-\nx = 1\n",
+            "# -*- coding: latin-1 -*-\nx = 1\n"
+        ));
+        assert!(!passes(
+            "python",
+            &python(),
+            "x = 1\n# coding: latin-1\n",
+            "# coding: latin-1\nx = 1\n"
+        ));
+    }
+
+    #[test]
+    fn a_shebang_moved_up_is_found() {
+        assert!(!passes(
+            "python",
+            &python(),
+            "\n#!/usr/bin/env python\nx = 1\n",
+            "#!/usr/bin/env python\nx = 1\n"
+        ));
+    }
+
+    #[test]
+    fn header_lines_that_stay_put_pass() {
+        assert!(passes(
+            "python",
+            &python(),
+            "#!/usr/bin/env python\n# -*- coding: latin-1 -*-\nx=( 1,2 )\n",
+            "#!/usr/bin/env python\n# -*- coding: latin-1 -*-\nx = (1, 2)\n"
+        ));
+    }
+
+    #[test]
+    fn rust_struct_bases_take_no_comma() {
+        assert!(!passes(
+            "rust",
+            &commas(),
+            "fn f() { let x = S { a: 1, ..b }; }\n",
+            "fn f() { let x = S { a: 1, ..b, }; }\n"
+        ));
+        assert!(!passes(
+            "rust",
+            &commas(),
+            "fn f() { let S { a, .. } = s; }\n",
+            "fn f() { let S { a, .., } = s; }\n"
+        ));
+        assert!(passes(
+            "rust",
+            &commas(),
+            "fn f() { let x = S { a: 1 }; }\n",
+            "fn f() { let x = S { a: 1, }; }\n"
+        ));
+    }
+
+    #[test]
+    fn a_sign_may_join_its_number() {
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "int y = - 1;\nfloat x = + 1.0f;\n",
+            "int y = -1;\nfloat x = +1.0f;\n"
+        ));
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            "int y = - -1;\n",
+            "int y = --1;\n"
+        ));
+    }
+
+    #[test]
+    fn deep_nesting_does_not_exhaust_the_stack() {
+        let deep = format!("int x = {}1{};\n", "(".repeat(100_000), ")".repeat(100_000));
+        assert!(passes("c", &Edits::NONE, &deep, &deep));
     }
 
     #[test]
