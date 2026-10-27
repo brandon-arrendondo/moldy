@@ -159,3 +159,16 @@ fn continued_initializer_directives_preserve_crlf() {
         format_source(path, &formatted, &config).expect("format a second time")
     );
 }
+
+#[test]
+fn an_operator_continuation_is_stable_with_tabs() {
+    let source = "void f(void)\n{\n    int x = a\n    + b;\n}\n";
+    let path = Path::new("continued.c");
+    let config = moldy::presets::load("linux-kernel").expect("load preset");
+    let formatted = format_source(path, source, &config).expect("format continuation");
+    assert_eq!(formatted, "void f(void)\n{\n\tint x = a\n\t\t+ b;\n}\n");
+    assert_eq!(
+        formatted,
+        format_source(path, &formatted, &config).expect("format a second time")
+    );
+}

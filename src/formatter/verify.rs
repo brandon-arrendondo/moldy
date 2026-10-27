@@ -200,7 +200,8 @@ fn align(
 /// describes. Each comment must stay between the same two code tokens,
 /// on the line of the one before it only if it was, and on the line of
 /// the one after it only if it was. A comment on a line of its own keeps
-/// a blank line before it, unless the block opens there, and gains none
+/// a blank line before it, unless a block or list opens there, in the
+/// input or with a brace an edit adds, and gains none
 /// after it. Tokens an edit deletes are passed over; `pairs` holds the
 /// `seq`s of the input and output tokens that match. A brace an edit
 /// adds, in `braces_added`, bounds the body it is added to: a comment
@@ -226,9 +227,17 @@ fn moved_comment(
     };
     // Code after a comment may come onto its line only if it was there,
     // and leave it only if the comment follows code too, which it then
-    // describes.
+    // describes, or is a closing bracket.
     let leads_wrongly = |b: &Token, a: &Token| {
-        (a.leading && !b.leading) || (b.leading && !a.leading && !b.trailing)
+        (a.joined && !b.joined)
+            || (a.leading && !b.leading)
+            || (b.leading && !a.leading && !b.trailing)
+    };
+    // A brace added to open a body, and so a block, right before it.
+    let opened_by_added_brace = |a: &Token| {
+        a.seq
+            .checked_sub(1)
+            .is_some_and(|p| braces_added.contains(&(p, true)))
     };
     // Whether the output puts `comment` on the wrong side of a brace
     // added between the matched tokens around it.
@@ -253,7 +262,7 @@ fn moved_comment(
                 || b_place.2 != a_place.2
                 || (b.leading && a.leading && b_place.3 != a_place.3)
                 || leads_wrongly(b, a)
-                || (b.blank_before && !a.blank_before)
+                || (b.blank_before && !a.blank_before && !opened_by_added_brace(a))
                 || (a.blank_after && !b.blank_after)
                 || crosses_brace(b, a)
         })
@@ -343,6 +352,8 @@ struct Token<'a> {
     /// A comment that code other than a closing bracket follows on its
     /// last line.
     leading: bool,
+    /// A comment that any code follows on its last line.
+    joined: bool,
     /// A comment on a line of its own with a blank line between it and
     /// the code or comment before it.
     blank_before: bool,
@@ -388,10 +399,10 @@ fn tokens<'a>(root: Node, source: &'a str, layout: Layout, braces: bool) -> Toke
         let (comment, after) = rest.split_first_mut().expect("i is in range");
         let seq = comment.seq;
         // A closing bracket after a comment on its line may move to the
-        // next line, or onto the comment's, as it describes nothing.
-        comment.leading = out.code.get(seq).is_some_and(|t| {
-            t.row == comment.end_row && !matches!(t.text.as_ref(), "}" | ")" | "]")
-        });
+        // next line, as it describes nothing.
+        let next_code = out.code.get(seq).filter(|t| t.row == comment.end_row);
+        comment.joined = next_code.is_some();
+        comment.leading = next_code.is_some_and(|t| !matches!(t.text.as_ref(), "}" | ")" | "]"));
         if comment.trailing {
             continue;
         }
@@ -651,6 +662,7 @@ fn token(text: Cow<'_, str>, start: tree_sitter::Point, end_row: usize) -> Token
         block: None,
         trailing: false,
         leading: false,
+        joined: false,
         blank_before: false,
         blank_after: false,
         kind: "",
@@ -1067,7 +1079,7 @@ mod tests {
         ));
         // After code too, the comment describes that code, so what
         // follows it may take a line of its own; a closing bracket may
-        // leave or join its line.
+        // leave its line, but not join it.
         assert!(passes(
             "c",
             &Edits::NONE,
@@ -1079,6 +1091,12 @@ mod tests {
             &Edits::NONE,
             "struct p q = { .x = 1,\n    .y = 2 /* dy */ };\n",
             "struct p q = { .x = 1,\n    .y = 2 /* dy */\n};\n"
+        ));
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            "int x = g(a /* why a */\n);\n",
+            "int x = g(a /* why a */);\n"
         ));
         // Comment columns may change.
         assert!(passes(
@@ -1103,6 +1121,13 @@ mod tests {
         assert!(!passes("c", &Edits::NONE, source, joined));
         // One added above it.
         assert!(passes("c", &Edits::NONE, joined, source));
+        // Removed after a brace that is added to open a body.
+        assert!(passes(
+            "c",
+            &braces(),
+            "void f(int a)\n{\n    if (a)\n\n        /* c */\n        g();\n}\n",
+            "void f(int a)\n{\n    if (a) {\n        /* c */\n        g();\n    }\n}\n"
+        ));
     }
 
     #[test]

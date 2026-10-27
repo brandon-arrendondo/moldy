@@ -644,9 +644,17 @@ impl<'a> Fmt<'a> {
         // closure or struct literal as the sole call argument) stays hugged
         // against its own parens/brackets — its content handles its own
         // line breaks.
-        // A line comment runs to the end of its line, so a list holding
-        // one can only be laid out one item per line.
-        let has_comment = groups.iter().flatten().any(|n| n.kind() == "line_comment");
+        // A line comment runs to the end of its line, and code is not
+        // joined onto a block comment's line, so a list holding one that
+        // ends its line can only be laid out one item per line.
+        let has_comment = groups.iter().flatten().any(|n| {
+            n.kind() == "line_comment"
+                || (n.kind() == "block_comment"
+                    && self.src[n.end_byte()..]
+                        .split('\n')
+                        .next()
+                        .is_some_and(|rest| rest.trim().is_empty()))
+        });
         // `(a,)` is a one-element tuple; without its comma, `(a)` is `a`.
         // The grammar reads a parenthesized type or pattern as a tuple too,
         // so the comma is kept where the source has one.
@@ -785,6 +793,14 @@ mod tests {
         assert_eq!(
             out,
             "enum E {\n    A = 1, // one\n    B, // two\n}\n\n#[test] // why\nfn f() -> u32 {\n    g(); // call\n    1 // one\n}\n"
+        );
+        // A closing bracket is not joined onto a block comment's line.
+        assert_eq!(
+            fmt_with(
+                &Config::default(),
+                "fn f() {\n    g(a /* why a */\n    );\n}\n"
+            ),
+            "fn f() {\n    g(\n        a, /* why a */\n    );\n}\n"
         );
     }
 

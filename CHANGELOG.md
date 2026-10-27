@@ -27,18 +27,25 @@ What changed for users of Moldy, newest release first. See
     declarations, and the ones around a Python `def` or `class`. The
     comment then read as a note on the code above. The blank line now
     goes above the comments.
+  - A blank line above a comment on a line of its own was removed
+    inside lists: C initializers and enums, Rust arrays and struct
+    literals, and Python brackets. It is now kept, as funky keeps it in
+    C; Ruff and Black remove it in Python.
+  - Rust: a closing bracket was joined onto the line of a block comment
+    before it (`g(a /* why a */` and `);` became one line).
 
   A comment on the line after a top-level `#define` or `#pragma`, which
   0.7.0 declined, is now formatted. The check every run makes now also
   compares where each comment is among the code, and the blank lines
   around it, so output that would
   move a comment is declined (exit 3) instead of written. Some files
-  0.7.0 formatted by moving a comment are now declined, where Moldy
+  0.7.0 formatted by moving a comment may now be declined, where Moldy
   cannot yet lay out the code around the comment without moving it:
   - Python: a comment inside an expression in parentheses or square
     brackets that is not a list of items, such as a condition split
     over lines, a subscript, a comprehension, or strings joined by
-    being written next to each other.
+    being written next to each other; and a comment on a line of its
+    own in a parenthesized `from ... import (...)` list.
   - C and C++: a comment inside a declaration, between its `=` and its
     value or before its `;`; a comment on a line of its own between
     `else` and the `if` or `{` after it, or between a function's

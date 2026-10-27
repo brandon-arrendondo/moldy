@@ -382,7 +382,11 @@ impl<'a> Fmt<'a> {
             .saturating_sub(source_base);
         self.nl();
         self.raw(indent);
-        if past == 0 && (is_binary_op_kind(leaf.kind()) || matches!(leaf.kind(), "?" | ":")) {
+        // One level, as tabs or spaces, measures the same on the next run.
+        let level = usize::from(self.config.indent.width);
+        if (past == 0 || past == level)
+            && (is_binary_op_kind(leaf.kind()) || matches!(leaf.kind(), "?" | ":"))
+        {
             let unit = self.indent_str_at(1);
             self.raw(&unit);
         } else {

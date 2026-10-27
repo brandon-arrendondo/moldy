@@ -179,8 +179,10 @@ the check compares, for every comment:
 - for a comment on a line of its own, the blank lines around it. Moldy
   never puts a blank line between such a comment and the code or
   comment after it, and never removes the blank line that separates it
-  from the code above, unless that code opens a block. It may add one
-  above it.
+  from the code above, unless that code opens a block or a list, or a
+  brace a formatting option adds there opens one. It may add one above
+  it. This holds inside lists too, such as C initializers and enums,
+  Rust arrays and struct literals, and Python brackets.
 
 A comment's column and its indentation are layout and may change, and
 so is the number of blank lines around it, within those rules. A token a
@@ -202,7 +204,8 @@ around a Python `def`, goes above the comments that lead the statement.
 
 - A comment never moves past code, and a trailing comment stays trailing.
   Where a formatter cannot yet lay out the code around a comment without
-  moving it, the file is declined rather than formatted.
+  moving it, the file may be declined rather than formatted.
 - Where the reference tool moves a comment, Moldy differs from it. funky,
   for example, puts a comment that follows a `{` on a line of its own;
-  Moldy keeps it after the `{`.
+  Moldy keeps it after the `{`. Ruff and Black remove a blank line above
+  a comment inside Python brackets, and Moldy keeps it.

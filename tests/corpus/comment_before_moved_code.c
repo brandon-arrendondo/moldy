@@ -1,0 +1,16 @@
+void wait(void) { /* nothing */ }
+
+void spin(int a)
+{
+    while (a) { /* empty body */ }
+    for (;;) { /* forever */ }
+    if (a) a++; /* counted */ a--;
+    if (a)
+
+        /* the blank line above goes with the added brace */
+        g();
+    else
+
+        // so does this one
+        h();
+}

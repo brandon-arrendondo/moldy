@@ -59,6 +59,11 @@ pub(super) trait OutputOps<'a>: Sized {
     }
 
     fn nl(&mut self) {
+        // A block comment that code followed in the source ends with the
+        // space before that code, which this line break replaces.
+        if self.out().ends_with("*/ ") {
+            self.out_mut().pop();
+        }
         self.out_mut().push('\n');
         self.set_at_bol(true);
     }

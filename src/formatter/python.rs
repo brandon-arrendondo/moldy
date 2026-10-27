@@ -221,8 +221,13 @@ impl<'a> Fmt<'a> {
     /// is not a comment.
     fn blanks_before(&self, prev: Node, cur: Node, next: Option<Node>) -> usize {
         let leads = |n: Node| n.kind() == "comment" && !self.follows_code(n);
+        // The comments directly above a def take its blank lines, unless
+        // only comments come before them.
+        let code_before =
+            std::iter::successors(Some(prev), |n| n.prev_sibling()).any(|n| n.kind() != "comment");
         let def_after = leads(cur)
-            && !leads(prev)
+            && (!leads(prev)
+                || (code_before && self.source_blanks(prev.end_byte(), cur.start_byte()) > 0))
             && next.is_some_and(|next| {
                 is_def_like(next) && !has_blank_line(&self.src[cur.start_byte()..next.start_byte()])
             });
@@ -676,6 +681,14 @@ mod tests {
             fmt(src),
             "import os\n\n\n# about f\ndef f():\n    pass\n\n\nclass C:\n    x = 1\n\n    # about n\n    def n(self):\n        pass\n"
         );
+        // After another group of comments too, unless only comments come
+        // before them.
+        assert_eq!(
+            fmt("x = 1\n# section\n\n# about f\ndef f():\n    pass\n"),
+            "x = 1\n# section\n\n\n# about f\ndef f():\n    pass\n"
+        );
+        let header = "# header\n\n# about f\ndef f():\n    pass\n";
+        assert_eq!(fmt(header), header);
     }
 
     #[test]
