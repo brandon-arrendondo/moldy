@@ -61,6 +61,9 @@ What changed for users of Moldy, newest release first. See
     parenthesized expression, type or pattern, an `if` or `while`
     condition, an index or an array length, where no comma can follow
     it and the bracket would be joined onto its line.
+  - Rust: a block comment that starts its line with code after it on
+    that line (`/* c */ g();`), in a statement, item, field, variant,
+    match arm or list element, where the code would be moved below it.
 
 ### Changed
 
