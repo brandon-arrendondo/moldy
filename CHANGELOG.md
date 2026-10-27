@@ -32,7 +32,10 @@ What changed for users of Moldy, newest release first. See
     literals, and Python brackets. It is now kept, as funky keeps it in
     C; Ruff and Black remove it in Python.
   - Rust: a closing bracket was joined onto the line of a block comment
-    before it (`g(a /* why a */` and `);` became one line).
+    before it (`g(a /* why a */` and `);` became one line). Such a list
+    is now laid out one item per line, which also formats generic
+    parameters, turbofish arguments and closure parameters that end
+    with a comment.
 
   A comment on the line after a top-level `#define` or `#pragma`, which
   0.7.0 declined, is now formatted. The check every run makes now also
@@ -53,7 +56,11 @@ What changed for users of Moldy, newest release first. See
     written next to each other; and a comment in a `case` body that
     also holds a preprocessor conditional.
   - Rust: a comment on a line of its own between an `if` condition or
-    `else` and its `{`.
+    `else` and its `{`; and a block comment that ends its line before a
+    closing bracket that does not close a list, such as that of a
+    parenthesized expression, type or pattern, an `if` or `while`
+    condition, an index or an array length, where no comma can follow
+    it and the bracket would be joined onto its line.
 
 ### Changed
 

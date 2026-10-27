@@ -1,0 +1,10 @@
+literal: |
+  keep the space after */ 
+  next line
+folded: >
+  keep the space after */ 
+  next line
+scripts:
+  - |
+    sed -e "s/* x */ 
+    done

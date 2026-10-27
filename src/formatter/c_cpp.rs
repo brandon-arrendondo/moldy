@@ -81,6 +81,9 @@ struct Fmt<'a> {
     // and the statement's end: the innermost body ending there takes it,
     // so that it stays inside braces added around that body.
     body_comment: Option<(usize, std::ops::Range<usize>)>,
+    // Where the space after a comment that code followed in the source
+    // ends: a line break there replaces it.
+    comment_space: Option<usize>,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -111,6 +114,14 @@ impl<'a> OutputOps<'a> for Fmt<'a> {
     fn set_at_bol(&mut self, at_bol: bool) {
         self.at_bol = at_bol;
     }
+
+    fn nl(&mut self) {
+        if self.comment_space.take() == Some(self.out.len()) {
+            self.out.pop();
+        }
+        self.out.push('\n');
+        self.at_bol = true;
+    }
 }
 
 impl<'a> Fmt<'a> {
@@ -129,6 +140,7 @@ impl<'a> Fmt<'a> {
             last_lambda_col: None,
             assign_col_for_brace: None,
             body_comment: None,
+            comment_space: None,
         }
     }
 
@@ -476,6 +488,7 @@ impl<'a> Fmt<'a> {
         let leads = !text.starts_with("//") && rest.is_some_and(|rest| !rest.trim().is_empty());
         if leads {
             self.space();
+            self.comment_space = Some(self.out.len());
         } else {
             self.nl();
         }
