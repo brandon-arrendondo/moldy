@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-27
+
 ### Fixed
 
 - The C, C++, Rust and Python formatters no longer change code. A
