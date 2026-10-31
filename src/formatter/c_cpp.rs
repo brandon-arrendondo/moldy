@@ -84,6 +84,9 @@ struct Fmt<'a> {
     // Where the space after a comment that code followed in the source
     // ends: a line break there replaces it.
     comment_space: Option<usize>,
+    // Set by a body that holds only block comments written on one line
+    // with its braces: its `}` follows them on that line.
+    close_inline: bool,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -141,6 +144,7 @@ impl<'a> Fmt<'a> {
             assign_col_for_brace: None,
             body_comment: None,
             comment_space: None,
+            close_inline: false,
         }
     }
 
@@ -639,9 +643,7 @@ impl<'a> Fmt<'a> {
                 self.emit_compound_body(body);
                 self.decl_block_exit();
                 self.depth -= 1;
-                self.ensure_nl();
-                self.emit_indent();
-                self.raw("}");
+                self.close_compound();
             }
         } else {
             self.ensure_nl();
@@ -735,6 +737,19 @@ impl<'a> Fmt<'a> {
     }
 
     // ── Compound body ─────────────────────────────────────────────────────────
+
+    /// Writes the `}` of a body just emitted: after its comments when the
+    /// body asked to close on their line, or else on a line of its own.
+    fn close_compound(&mut self) {
+        if std::mem::take(&mut self.close_inline) {
+            self.comment_space = None;
+            self.space();
+        } else {
+            self.ensure_nl();
+            self.emit_indent();
+        }
+        self.raw("}");
+    }
 
     fn emit_compound_body(&mut self, node: Node) {
         // A comment an enclosing statement passed down waits for its body.
@@ -933,6 +948,21 @@ impl<'a> Fmt<'a> {
             i += 1;
         }
 
+        // A body of block comments only, written on one line with its
+        // braces, keeps that line: `{ /* nothing */ }`.
+        let items = &children[start_i..end_i];
+        self.close_inline = end_i < children.len()
+            && start_i > 0
+            && !items.is_empty()
+            && items
+                .iter()
+                .all(|n| n.kind() == "comment" && self.node_text(*n).starts_with("/*"))
+            && !self.src[children[0].start_byte()..children[end_i].end_byte()].contains('\n')
+            && !self.at_bol;
+        if self.close_inline {
+            return;
+        }
+
         // Preserve any blank line in the source just before the closing `}`.
         if end_i < children.len() {
             let closing_brace = children[end_i];
@@ -995,9 +1025,7 @@ impl<'a> Fmt<'a> {
                 self.depth += 1;
                 self.emit_compound_body(node);
                 self.depth -= 1;
-                self.ensure_nl();
-                self.emit_indent();
-                self.raw("}");
+                self.close_compound();
             }
             "if_statement" => self.emit_if_statement(node),
             "for_statement" => self.emit_for_statement(node),
@@ -1499,9 +1527,7 @@ impl<'a> Fmt<'a> {
                 self.depth += 1;
                 self.emit_compound_body(body);
                 self.depth -= 1;
-                self.ensure_nl();
-                self.emit_indent();
-                self.raw("}");
+                self.close_compound();
                 self.space();
             } else {
                 // No brace injection for do-while bodies; funky keeps body at same depth.
@@ -1797,9 +1823,7 @@ impl<'a> Fmt<'a> {
                 self.depth += 1;
                 self.emit_compound_body(node);
                 self.depth -= 1;
-                self.ensure_nl();
-                self.emit_indent();
-                self.raw("}");
+                self.close_compound();
                 self.emit_comments_placed(tail);
             }
             _ if is_null_stmt(node) => {
@@ -1914,9 +1938,7 @@ impl<'a> Fmt<'a> {
                     self.depth += 1;
                     self.emit_compound_body(child);
                     self.depth -= 1;
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw("}");
+                    self.close_compound();
                     self.nl();
                     return;
                 }
@@ -1959,9 +1981,7 @@ impl<'a> Fmt<'a> {
                     self.depth += 1;
                     self.emit_compound_body(*child);
                     self.depth -= 1;
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw("}");
+                    self.close_compound();
                     self.nl();
                     return;
                 }
@@ -2183,9 +2203,7 @@ impl<'a> Fmt<'a> {
                     self.depth += 1;
                     self.emit_compound_body(*child);
                     self.depth -= 1;
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw("}");
+                    self.close_compound();
                 }
                 "catch_clause" => {
                     self.emit_catch_clause(*child);
@@ -2224,9 +2242,7 @@ impl<'a> Fmt<'a> {
                     self.depth += 1;
                     self.emit_compound_body(child);
                     self.depth -= 1;
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw("}");
+                    self.close_compound();
                 }
                 _ => {
                     self.space();
@@ -2766,9 +2782,7 @@ impl<'a> Fmt<'a> {
                     self.depth += 1;
                     self.emit_compound_body(body);
                     self.depth -= 1;
-                    self.ensure_nl();
-                    self.emit_indent();
-                    self.raw("}");
+                    self.close_compound();
                 }
             }
         }

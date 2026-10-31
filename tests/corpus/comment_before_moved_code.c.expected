@@ -1,15 +1,12 @@
 void wait(void)
-{ /* nothing */
-}
+{ /* nothing */ }
 
 void spin(int a)
 {
-    while (a) { /* empty body */
-    }
-    for (;;) {  /* forever */
-    }
+    while (a) { /* empty body */ }
+    for (;;) {  /* forever */ }
     if (a) {
-        a++; /* counted */
+        a++;    /* counted */
     }
     a--;
     if (a) {
