@@ -879,30 +879,8 @@ impl<'a> Fmt<'a> {
 
                     let emit_blanks = if force_blank { blanks.max(1) } else { blanks };
 
-                    let null_stmt = is_null_stmt(child) || kind == ";";
-                    // The `;` the grammar reads apart from the type it ends.
-                    let ends_type = kind == ";"
-                        && children[start_i..i]
-                            .iter()
-                            .rfind(|n| n.kind() != "comment")
-                            .is_some_and(|n| is_type_specifier(n.kind()));
-                    if (null_stmt && (self.out.ends_with('}') || ends_type)) || after_comment {
-                        // Null stmt right after `}`: emit `;` inline (funky: `};`).
-                        // After a comment on its line, the statement follows it.
-                    } else {
-                        self.emit_blank_lines(emit_blanks);
-                        if !null_stmt {
-                            self.ensure_nl();
-                            // Standalone `{ }` block as FIRST child of outer `{ }`:
-                            // Its dedicated emitter owns opening-brace indentation.
-                            let is_first_nested_block =
-                                first_stmt && child.kind() == "compound_statement";
-                            if !is_first_nested_block {
-                                self.emit_indent();
-                            }
-                        }
-                        // else: null stmt at BOL → column 0, no indent.
-                    }
+                    let ends_type = ends_type(&children[start_i..i], kind);
+                    self.start_statement(child, ends_type, after_comment, emit_blanks, first_stmt);
                     let is_first_block = first_stmt && child.kind() == "compound_statement";
                     self.body_comment =
                         trailing_comment.map(|cmt| (child.end_byte(), cmt.byte_range()));
@@ -931,10 +909,12 @@ impl<'a> Fmt<'a> {
                             }
                             self.space();
                             self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
-                            // The `;` that ends a type after the comment
-                            // stays on its line.
+                            // The `;` that ends a type after a block
+                            // comment stays on its line; a line comment
+                            // ends the line.
                             let semicolon = children.get(i + 2).is_some_and(|n| n.kind() == ";");
-                            if semicolon && is_type_specifier(kind) {
+                            let block = !self.node_text(cmt).starts_with("//");
+                            if semicolon && block && is_type_specifier(kind) {
                                 held = true;
                             } else {
                                 self.nl();
@@ -958,6 +938,44 @@ impl<'a> Fmt<'a> {
             let closing_brace = children[end_i];
             let trailing_blanks = self.source_blanks(prev_end, closing_brace.start_byte());
             self.emit_blank_lines(trailing_blanks);
+        }
+    }
+
+    /// Places the start of `child`, a statement in a body: on a line of
+    /// its own after `blanks` blank lines, or where the output is.
+    fn start_statement(
+        &mut self,
+        child: Node,
+        ends_type: bool,
+        after_comment: bool,
+        blanks: usize,
+        first_stmt: bool,
+    ) {
+        let null_stmt = is_null_stmt(child) || child.kind() == ";";
+        if ends_type {
+            // A type's `;` follows the type, or the comments after it on
+            // its line with no space before it (`} /* c */;`); on a line
+            // of its own it keeps the statement's indent.
+            if self.at_bol {
+                self.emit_indent();
+            } else if self.comment_space.take() == Some(self.out.len()) && self.out.ends_with(' ') {
+                self.out.pop();
+            }
+        } else if (null_stmt && self.out.ends_with('}')) || after_comment {
+            // Null stmt right after `}`: emit `;` inline (funky: `};`).
+            // After a comment on its line, the statement follows it.
+        } else {
+            self.emit_blank_lines(blanks);
+            if !null_stmt {
+                self.ensure_nl();
+                // Standalone `{ }` block as FIRST child of outer `{ }`:
+                // Its dedicated emitter owns opening-brace indentation.
+                let is_first_nested_block = first_stmt && child.kind() == "compound_statement";
+                if !is_first_nested_block {
+                    self.emit_indent();
+                }
+            }
+            // else: null stmt at BOL → column 0, no indent.
         }
     }
 
@@ -3756,6 +3774,16 @@ fn is_type_specifier(kind: &str) -> bool {
         kind,
         "class_specifier" | "struct_specifier" | "union_specifier" | "enum_specifier"
     )
+}
+
+/// Whether a `;` of kind `kind` is the one the grammar reads apart from
+/// the type it ends: the last non-comment before it, in `before`, is a type.
+fn ends_type(before: &[Node], kind: &str) -> bool {
+    kind == ";"
+        && before
+            .iter()
+            .rfind(|n| n.kind() != "comment")
+            .is_some_and(|n| is_type_specifier(n.kind()))
 }
 
 /// Whether a `;` token of its own comes after `node`, past any comments.
