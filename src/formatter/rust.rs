@@ -198,6 +198,16 @@ impl<'a> OutputOps<'a> for Fmt<'a> {
             self.raw(&s);
         }
     }
+
+    /// The scratch output starts with no comment glued to it, and what
+    /// it writes leaves the real output's state as it was.
+    fn render_scratch<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
+        let saved = std::mem::take(&mut self.out);
+        let glued = std::mem::take(&mut self.glued);
+        f(self);
+        self.glued = glued;
+        std::mem::replace(&mut self.out, saved)
+    }
 }
 
 impl<'a> Fmt<'a> {
@@ -805,8 +815,9 @@ impl<'a> Fmt<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::format;
+    use super::{format, Fmt};
     use crate::config::Config;
+    use crate::formatter::output::OutputOps;
 
     fn fmt_with(config: &Config, src: &str) -> String {
         format(src, config).unwrap_or_else(|e| panic!("format failed: {e}"))
@@ -835,6 +846,19 @@ mod tests {
             ),
             "fn f() {\n    g(\n        a, /* why a */\n    );\n}\n"
         );
+    }
+
+    #[test]
+    fn a_scratch_render_keeps_the_glued_state_apart() {
+        let config = Config::default();
+        let mut fmt = Fmt::new("", &config);
+        fmt.raw("/* c */");
+        fmt.glued = true;
+        assert_eq!(fmt.render_scratch(|s| s.nl()), "\n");
+        assert!(fmt.glued);
+        fmt.glued = false;
+        fmt.render_scratch(|s| s.glued = true);
+        assert!(!fmt.glued);
     }
 
     #[test]
