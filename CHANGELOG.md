@@ -5,6 +5,13 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C and C++: an empty body holding only block comments, written on one
+  line with its braces (`while (a) { /* nothing */ }`), stays on that
+  line. 0.7.1 put the `}` on the next line, and 0.7.0 moved the comment
+  onto a line of its own.
+
 ## [0.7.1] - 2026-10-27
 
 ### Fixed

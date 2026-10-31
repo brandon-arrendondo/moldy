@@ -1,0 +1,36 @@
+void wait(void)
+{ /* nothing */ }
+
+void both(void)
+{ /* one */ /* two */ }
+
+int spin(int a)
+{
+    do { /* poll */ } while (a);
+    switch (a) {
+        case 1:
+            { /* one */ }
+            break;
+        default:
+            break;
+    }
+    try {               /* attempt */ }
+    catch (...) {       /* ignore */ }
+    {                   /* bare */ }
+    {
+        {               /* nested */ }
+    }
+    if (a) {            /* yes */ }
+    else if (a > 1) {   /* more */ }
+    else {              /* no */ }
+
+    while (a) {         /* written
+                   over two lines */
+    }
+    while (a) {
+        /* on a line of its own */
+    }
+    for (;;) { // a line comment
+    }
+    return 0;
+}
