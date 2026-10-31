@@ -5,6 +5,18 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C and C++: a `class` or `struct` declared inside a namespace or a
+  function body, including one declared ahead (`class W;`), gained a
+  second `;` on a line of its own (`namespace ns { class W { int n_; };
+  }` gave `class W {...};` and then `;`). Since 0.7.0 the check caught
+  the added token and declined these files; they are now formatted, with
+  the one `;` they have.
+- C and C++: the `;` after an `enum` declared in a function body went
+  on a line of its own after the `}`. It now follows the `}`, as funky
+  puts it.
+
 ## [0.7.1] - 2026-10-27
 
 ### Fixed

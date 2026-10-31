@@ -1,0 +1,15 @@
+namespace ns {
+class W{
+int n_;
+};
+class Fwd;
+struct S { int x; } /* between */ ;
+class T { int t; }; // trailing
+}
+
+void f(void)
+{
+    struct s { int a; };
+    struct H;
+    struct t { int b; } v;
+}

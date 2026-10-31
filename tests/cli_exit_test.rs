@@ -230,15 +230,15 @@ fn parser_recovery_in_c_is_not_a_failure() {
 #[test]
 fn output_that_would_change_the_code_exits_3_and_is_left_unchanged() {
     let dir = project();
-    // The emitter gives a `struct` declared in a function a second `;`,
-    // so the token check declines the file.
-    let source = "int f(void)\n{\n    struct s { int a; };\n    return  0;\n}\n";
+    // The emitter would move the comment between the declarator and its
+    // `{` into the body, so the check declines the file.
+    let source = "int f(void)\n/* c */\n{\n    return  0;\n}\n";
     fs::write(dir.path().join("d.c"), source).unwrap();
     let output = moldy(dir.path(), &["d.c"]);
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert_eq!(String::from_utf8_lossy(&output.stdout), source);
     assert!(stderr(&output).contains(
-        "d.c: not formatted (C could not be formatted without changing its meaning (line 4))"
+        "d.c: not formatted (C could not be formatted without changing its meaning (line 2))"
     ));
     let output = moldy(dir.path(), &["--in-place", "d.c"]);
     assert_eq!(output.status.code(), Some(3), "{output:?}");

@@ -879,12 +879,19 @@ impl<'a> Fmt<'a> {
 
                     let emit_blanks = if force_blank { blanks.max(1) } else { blanks };
 
-                    if (is_null_stmt(child) && self.out.ends_with('}')) || after_comment {
+                    let null_stmt = is_null_stmt(child) || kind == ";";
+                    // The `;` the grammar reads apart from the type it ends.
+                    let ends_type = kind == ";"
+                        && children[start_i..i]
+                            .iter()
+                            .rfind(|n| n.kind() != "comment")
+                            .is_some_and(|n| is_type_specifier(n.kind()));
+                    if (null_stmt && (self.out.ends_with('}') || ends_type)) || after_comment {
                         // Null stmt right after `}`: emit `;` inline (funky: `};`).
                         // After a comment on its line, the statement follows it.
                     } else {
                         self.emit_blank_lines(emit_blanks);
-                        if !is_null_stmt(child) {
+                        if !null_stmt {
                             self.ensure_nl();
                             // Standalone `{ }` block as FIRST child of outer `{ }`:
                             // Its dedicated emitter owns opening-brace indentation.
@@ -924,7 +931,14 @@ impl<'a> Fmt<'a> {
                             }
                             self.space();
                             self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
-                            self.nl();
+                            // The `;` that ends a type after the comment
+                            // stays on its line.
+                            let semicolon = children.get(i + 2).is_some_and(|n| n.kind() == ";");
+                            if semicolon && is_type_specifier(kind) {
+                                held = true;
+                            } else {
+                                self.nl();
+                            }
                         }
                         prev_end = cmt.end_byte();
                         first_stmt = false;
@@ -995,13 +1009,19 @@ impl<'a> Fmt<'a> {
             "namespace_definition" => {
                 self.emit_namespace_definition(node);
             }
+            // The grammar reads the `;` after a class or struct in a body
+            // as a sibling of its own, which follows it here.
             "class_specifier" => {
                 self.emit_class_like(node);
-                self.raw(";");
+                if !followed_by_semicolon(node) {
+                    self.raw(";");
+                }
             }
             "struct_specifier" => {
                 self.emit_struct_like(node);
-                self.raw(";");
+                if !followed_by_semicolon(node) {
+                    self.raw(";");
+                }
             }
             "try_statement" => self.emit_try_statement(node),
             k if is_preproc(k) => self.emit_preproc(node),
@@ -3728,6 +3748,21 @@ fn is_braceless_switch_error(node: Node) -> bool {
         }
     }
     has_switch && has_paren_expr
+}
+
+/// Whether `kind` declares a type, which a `;` of its own may end.
+fn is_type_specifier(kind: &str) -> bool {
+    matches!(
+        kind,
+        "class_specifier" | "struct_specifier" | "union_specifier" | "enum_specifier"
+    )
+}
+
+/// Whether a `;` token of its own comes after `node`, past any comments.
+fn followed_by_semicolon(node: Node) -> bool {
+    std::iter::successors(node.next_sibling(), |n| n.next_sibling())
+        .find(|n| n.kind() != "comment")
+        .is_some_and(|next| next.kind() == ";")
 }
 
 fn is_null_stmt(node: Node) -> bool {
