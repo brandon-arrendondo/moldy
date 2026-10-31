@@ -23,6 +23,11 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
         .parse(source, None)
         .ok_or_else(|| MoldyError::Parse("tree-sitter returned no tree".into()))?;
 
+    let language = if lang_key == "cpp" { "C++" } else { "C" };
+    if super::needs_worker_stack(language, tree.root_node())? {
+        return super::on_worker_stack(|| format(source, lang_key, config));
+    }
+
     // Continue even if tree has errors; unknown nodes emit their source text.
     let mut fmt = Fmt::new(source, config);
     fmt.emit_translation_unit(tree.root_node());

@@ -66,8 +66,9 @@ pub enum MoldyError {
     },
 
     /// The file nests deeper than the formatter accepts, so it is left
-    /// unchanged. The JSON, YAML, Markdown, CMake and Bash formatters
-    /// return this rather than exhaust the stack or the grammar's limits.
+    /// unchanged. Every formatter returns this rather than exhaust the
+    /// stack or the grammar's limits: C, C++, Rust and Python past 2,000
+    /// levels of syntax tree, the others at lower limits of their own.
     #[error("{language} is nested too deeply to format (line {line}); file left unchanged")]
     TooDeep {
         /// The language of the file.

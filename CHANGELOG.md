@@ -5,6 +5,18 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C, C++, Rust and Python: a file nested more than 2,000 levels deep in
+  its syntax tree (thousands of nested blocks or parentheses, or a very
+  long `else if` chain) is declined as nested too deeply, as JSON, YAML
+  and the other languages already were. Before, Moldy ran out of stack
+  and aborted the whole run, from about 800 levels on a 1 MB stack (the
+  default for a Windows program's main thread) to a few thousand on
+  Linux. A file more than 250 levels deep is now formatted on a
+  thread with a stack of its own, so the limit holds on every platform
+  and on any library caller's thread.
+
 ## [0.7.1] - 2026-10-27
 
 ### Fixed
