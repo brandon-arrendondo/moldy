@@ -46,6 +46,9 @@ pub fn format(source: &str, config: &Config) -> Result<String, MoldyError> {
 
     let mut fmt = Fmt::new(source, config);
     let root = tree.root_node();
+    if super::needs_worker_stack("Python", root)? {
+        return super::on_worker_stack(|| format(source, config));
+    }
     let mut cursor = root.walk();
     let items: Vec<Node> = root
         .children(&mut cursor)
