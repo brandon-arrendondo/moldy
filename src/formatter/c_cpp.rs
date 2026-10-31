@@ -82,7 +82,8 @@ struct Fmt<'a> {
     // so that it stays inside braces added around that body.
     body_comment: Option<(usize, std::ops::Range<usize>)>,
     // Where the space after a comment that code followed in the source
-    // ends: a line break there replaces it.
+    // ends: a line break there replaces it, if the output still ends in
+    // that space.
     comment_space: Option<usize>,
 }
 
@@ -116,7 +117,7 @@ impl<'a> OutputOps<'a> for Fmt<'a> {
     }
 
     fn nl(&mut self) {
-        if self.comment_space.take() == Some(self.out.len()) {
+        if self.comment_space.take() == Some(self.out.len()) && self.out.ends_with(' ') {
             self.out.pop();
         }
         self.out.push('\n');
@@ -2427,12 +2428,15 @@ impl<'a> Fmt<'a> {
         let saved_bol = self.at_bol;
         let saved_directive_end = self.directive_end;
         let saved_initializer = self.in_initializer;
+        // An offset into the real output means nothing in the scratch one.
+        let saved_comment_space = self.comment_space.take();
         self.at_bol = false;
         self.emit_decl_children(node);
         let rendered = std::mem::replace(&mut self.out, saved_out);
         self.at_bol = saved_bol;
         self.directive_end = saved_directive_end;
         self.in_initializer = saved_initializer;
+        self.comment_space = saved_comment_space;
         // Return chars on the last line (handles unlikely multi-line case).
         rendered.len() - rendered.rfind('\n').map(|p| p + 1).unwrap_or(0)
     }
@@ -4297,4 +4301,49 @@ fn align_enum_equals(output: &str, on_tabstop: bool, tab_width: usize) -> String
     }
 
     result.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_line_break_drops_only_the_space_it_was_told_of() {
+        let config = Config::default();
+        let mut fmt = Fmt::new("", &config);
+        fmt.raw("/* c */ ");
+        fmt.comment_space = Some(fmt.out.len());
+        fmt.nl();
+        assert_eq!(fmt.out, "/* c */\n");
+
+        // An offset left over from rewritten output must not cost a
+        // byte that is not that space.
+        fmt.out = "x = a;".to_string();
+        fmt.at_bol = false;
+        fmt.comment_space = Some(fmt.out.len());
+        fmt.nl();
+        assert_eq!(fmt.out, "x = a;\n");
+    }
+
+    #[test]
+    fn measuring_a_declaration_keeps_the_pending_comment_space() {
+        // Rendering this declaration starts a line where its scratch
+        // output is as long as the real output below.
+        let source = "int a = 1, // c\n    b;";
+        let ts_lang = lang_parsing_substrate::language_for_key("c").unwrap();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&ts_lang).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let decl = tree.root_node().child(0).unwrap();
+        let config = Config::default();
+        let mut fmt = Fmt::new(source, &config);
+        let before = "x;  /* note */ ";
+        assert_eq!(before.len(), "int a = 1, // c".len());
+        fmt.raw(before);
+        fmt.comment_space = Some(fmt.out.len());
+        fmt.measure_decl_render(decl);
+        assert_eq!(fmt.out, before);
+        fmt.nl();
+        assert_eq!(fmt.out, "x;  /* note */\n");
+    }
 }
