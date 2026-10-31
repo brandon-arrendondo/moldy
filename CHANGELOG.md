@@ -16,6 +16,16 @@ What changed for users of Moldy, newest release first. See
 - C and C++: the `;` after an `enum` declared in a function body went
   on a line of its own after the `}`. It now follows the `}`, as funky
   puts it.
+- Rust: a block comment that starts its line with code after it on that
+  line (`/* c */ g();`), before a statement, item, field, variant, match
+  arm or list element, is formatted with the code kept on its line.
+  0.7.0 moved the code below the comment, and 0.7.1 declined these files.
+- Rust: code and comments that share a line stay on it as written, in
+  files 0.7.1 already formatted: an empty block holding a comment, `{ /*
+  ignore */ }`, where 0.7.1 put the `}` on the next line; and code after
+  a block comment on its line (`fn f() { /* c */ g();`, `g(); /* c */
+  h();`, `/** doc */ fn g() {}`, `/* c */ }`), which 0.7.1 moved to the
+  next line.
 
 ## [0.7.1] - 2026-10-27
 
