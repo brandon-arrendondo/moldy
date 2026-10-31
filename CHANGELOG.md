@@ -5,6 +5,15 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- Rust: a block comment that starts its line with code after it on that
+  line (`/* c */ g();`), before a statement, item, field, variant, match
+  arm or list element, is formatted with the code kept on its line.
+  0.7.0 moved the code below the comment, and 0.7.1 declined these files.
+- Rust: an empty block holding a comment, `{ /* ignore */ }`, stays on
+  one line as written. 0.7.1 put the `}` on the next line.
+
 ## [0.7.1] - 2026-10-27
 
 ### Fixed

@@ -151,6 +151,9 @@ struct Fmt<'a> {
     config: &'a Config,
     out: String,
     depth: u32,
+    // A block comment that code follows on its line in the source was
+    // just written: that code stays on its line.
+    glued: bool,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -173,6 +176,28 @@ impl<'a> OutputOps<'a> for Fmt<'a> {
     fn out_mut(&mut self) -> &mut String {
         &mut self.out
     }
+
+    fn raw(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.glued = false;
+            self.out.push_str(s);
+        }
+    }
+
+    fn nl(&mut self) {
+        if self.glued {
+            self.space();
+        } else {
+            self.out.push('\n');
+        }
+    }
+
+    fn emit_indent(&mut self) {
+        if !self.glued {
+            let s = self.indent_str_at(self.depth);
+            self.raw(&s);
+        }
+    }
 }
 
 impl<'a> Fmt<'a> {
@@ -182,6 +207,7 @@ impl<'a> Fmt<'a> {
             config,
             out: String::with_capacity(src.len()),
             depth: 0,
+            glued: false,
         }
     }
 
@@ -281,6 +307,9 @@ impl<'a> Fmt<'a> {
                     }
                 }
                 self.raw(self.node_text(node).trim_end_matches('\n'));
+                let rest = self.src[node.end_byte()..].split('\n').next();
+                self.glued = node.kind() == "block_comment"
+                    && rest.is_some_and(|rest| !rest.trim().is_empty());
             }
             "string_literal" | "raw_string_literal" | "char_literal" => {
                 // Never recurse into quote/content children generically —
@@ -644,16 +673,20 @@ impl<'a> Fmt<'a> {
         // closure or struct literal as the sole call argument) stays hugged
         // against its own parens/brackets — its content handles its own
         // line breaks.
-        // A line comment runs to the end of its line, and code is not
-        // joined onto a block comment's line, so a list holding one that
-        // ends its line can only be laid out one item per line.
+        // A line comment runs to the end of its line, and a block comment
+        // keeps the line it ends or starts, so a list holding one that
+        // ends or starts its line can only be laid out one item per line.
         let has_comment = groups.iter().flatten().any(|n| {
             n.kind() == "line_comment"
                 || (n.kind() == "block_comment"
-                    && self.src[n.end_byte()..]
+                    && (self.src[n.end_byte()..]
                         .split('\n')
                         .next()
-                        .is_some_and(|rest| rest.trim().is_empty()))
+                        .is_some_and(|rest| rest.trim().is_empty())
+                        || self.src[..n.start_byte()]
+                            .rsplit('\n')
+                            .next()
+                            .is_some_and(|before| before.trim().is_empty())))
         });
         // `(a,)` is a one-element tuple; without its comma, `(a)` is `a`.
         // The grammar reads a parenthesized type or pattern as a tuple too,
@@ -802,6 +835,15 @@ mod tests {
             ),
             "fn f() {\n    g(\n        a, /* why a */\n    );\n}\n"
         );
+    }
+
+    #[test]
+    fn code_after_a_block_comment_stays_on_its_line() {
+        let src = "/* c */ fn g() {}\n\nstruct S {\n    /* c */ a: u32,\n}\n\nfn f() {\n    /* c */ g();\n    let v = [\n        /* c */ 1,\n        2,\n    ];\n}\n";
+        assert_eq!(fmt_with(&Config::default(), src), src);
+        let mut compat = Config::default();
+        compat.rust.width_based_wrapping = true;
+        assert_eq!(fmt_with(&compat, src), src);
     }
 
     #[test]
