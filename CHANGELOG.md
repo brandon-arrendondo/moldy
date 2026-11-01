@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-01
+
 ### Fixed
 
 - C and C++: a `class` or `struct` declared inside a namespace or a
