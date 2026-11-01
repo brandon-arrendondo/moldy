@@ -30,15 +30,25 @@ What changed for users of Moldy, newest release first. See
   a block comment on its line (`fn f() { /* c */ g();`, `g(); /* c */
   h();`, `/** doc */ fn g() {}`, `/* c */ }`), which 0.7.1 moved to the
   next line.
+- C, C++, Rust and Python: a file nested deeply enough in its syntax
+  tree (many nested blocks or parentheses, or a long `else if` chain)
+  ran Moldy out of stack and aborted the whole run, from about 800
+  levels on a 1 MB stack (the default for a Windows program's main
+  thread) to a few thousand on Linux. Such a file is now declined as
+  nested too deeply (see Changed). A file more than 250 levels deep is
+  formatted on a thread with a stack of its own, so the limit holds on
+  every platform and on any library caller's thread.
+
+### Changed
+
 - C, C++, Rust and Python: a file nested more than 2,000 levels deep in
-  its syntax tree (thousands of nested blocks or parentheses, or a very
-  long `else if` chain) is declined as nested too deeply, as JSON, YAML
-  and the other languages already were. Before, Moldy ran out of stack
-  and aborted the whole run, from about 800 levels on a 1 MB stack (the
-  default for a Windows program's main thread) to a few thousand on
-  Linux. A file more than 250 levels deep is now formatted on a
-  thread with a stack of its own, so the limit holds on every platform
-  and on any library caller's thread.
+  its syntax tree is declined as nested too deeply, and the run exits 3,
+  as JSON, YAML and the other languages already do. This includes some
+  files that 0.7.1 formatted on a large stack, such as Linux's default
+  8 MB: an `if` with 999 `else if` branches (each `else if` adds two
+  levels), a C `1 + 1 + ...` chain of 2,000 terms, 1,000 nested C++
+  namespaces, and 1,000 nested Rust blocks or a 1,000-branch Rust `else
+  if` chain. The deepest real code found is a few hundred levels.
 
 ## [0.7.1] - 2026-10-27
 
