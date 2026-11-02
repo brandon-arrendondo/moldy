@@ -251,7 +251,7 @@ dependencies = [
  "tree-sitter-json",
  "tree-sitter-md",
  "tree-sitter-python",
- "tree-sitter-rst",
+ "tree-sitter-rst-next",
  "tree-sitter-rust",
  "tree-sitter-yaml",
 ]
@@ -643,7 +643,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree-sitter-rst"
+name = "tree-sitter-rst-next"
 version = "0.2.0"
 dependencies = [
  "cc",
