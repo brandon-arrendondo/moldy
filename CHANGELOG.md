@@ -34,6 +34,15 @@ What changed for users of Moldy, newest release first. See
   went to a line of its own at column 0, also inside a body. An empty
   statement on a line of its own is unchanged, as is one after a
   preprocessor line or after an empty body (`for (;;) ; ;`).
+- C and C++: a comment with code after it on its line is no longer
+  aligned with the trailing comments around it: `(16U /* pid */ + 1U)
+  /* bytes */` aligns `/* bytes */` and leaves `/* pid */` where it is. A
+  comment followed only by the punctuation that closes what it is in
+  still counts as trailing (`1 /* a */,`, `{ /* bare */ }`, `} /*
+  c */;`). A comment written apart from the code beside it keeps one
+  space there, where it was written against it: `g(a /* arg */)` and
+  `g( /* c */ a)` gave `g(a/* arg */)` and `g(/* c */a)` when not
+  aligned.
 
 ## [0.7.3] - 2026-11-03
 

@@ -3430,9 +3430,23 @@ impl<'a> Fmt<'a> {
     fn ws_before<'t>(&self, node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
         let ws = self.ws_before_layout(node, prev);
         match (ws, prev) {
-            (Ws::None, Some(prev)) if self.would_join(prev, node) => Ws::Space,
+            (Ws::None, Some(prev))
+                if self.would_join(prev, node) || self.spaced_comment(prev, node) =>
+            {
+                Ws::Space
+            }
             _ => ws,
         }
+    }
+
+    /// Whether a comment and the code beside it, `prev` then `node`, are
+    /// written apart in the source, other than an opening bracket before
+    /// the comment or a closing one after it: they keep one space there
+    /// (`g(a /* arg */)`, `g(/* c */ a)`), aligned or not.
+    fn spaced_comment(&self, prev: Node, node: Node) -> bool {
+        prev.end_byte() < node.start_byte()
+            && (node.kind() == "comment" && !matches!(prev.kind(), "(" | "[" | "{")
+                || prev.kind() == "comment" && !matches!(node.kind(), ")" | "]" | "}" | "," | ";"))
     }
 
     /// Whether the token ending at leaf `prev` and the one starting at
@@ -4288,7 +4302,8 @@ fn is_simple_fn_ptr_declarator(fn_decl: Node) -> bool {
 // ── Post-processing: trailing comment alignment ───────────────────────────────
 
 /// Return the byte offset of the `/*` or `//` that starts a TRAILING comment
-/// on `line` (i.e., code appears before the comment), or `None` otherwise.
+/// on `line` (i.e., code appears before the comment, and after it only the
+/// punctuation that closes what it is in), or `None` otherwise.
 /// `in_block` says whether the line starts inside a block comment, and is
 /// updated to whether the next one does: text inside a comment is not code,
 /// and a `//` there starts nothing.
@@ -4343,8 +4358,15 @@ fn trailing_comment_col(line: &str, in_block: &mut bool) -> Option<usize> {
             i += 2;
             continue;
         }
-        if b != b' ' && b != b'\t' {
+        if !b.is_ascii_whitespace() {
             code_seen = true;
+            // Code after a comment, other than the punctuation that
+            // closes what the comment is in (`1 /* a */,`, `{ /* b */ }`,
+            // `} /* c */;`): that comment is not trailing.
+            if decided && !matches!(b, b',' | b';' | b')' | b']' | b'}') {
+                decided = false;
+                found = None;
+            }
         }
         i += 1;
     }
@@ -4663,5 +4685,23 @@ mod tests {
         for line in ["s = \"", "s = \"a\\\"", "c = '", "a /* b ", "a // b "] {
             assert!(!ends_in_code(line), "{line}");
         }
+    }
+
+    #[test]
+    fn a_trailing_comment_is_followed_by_nothing_but_closers() {
+        let col = |line: &str| trailing_comment_col(line, &mut false);
+        for line in [
+            "a; /* c */",
+            "a; /* c */\r",
+            "1 /* a */,",
+            "{ /* b */ }",
+            "} /* c */;",
+        ] {
+            assert!(col(line).is_some(), "{line:?}");
+        }
+        for line in ["(16U /* pid */ + 1U)", "/* c */ a;", "a = /* c */ 1;"] {
+            assert_eq!(col(line), None, "{line:?}");
+        }
+        assert_eq!(col("do { /* d */ } while (a); /* t */"), Some(26));
     }
 }

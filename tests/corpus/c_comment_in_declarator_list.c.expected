@@ -9,12 +9,12 @@ int x           // before the comma
     , y;
 int a = 1,      /* block */
     b;
-int c = 1,      /* inline */ d;
-int e =         // before the value
+int c = 1, /* inline */ d;
+int e = // before the value
     1;
-int i =         /* before the value */
+int i = /* before the value */
     2;
-int             // before the name
+int     // before the name
     j;
 /* A `//` inside a string is not a comment. */
 static const char *slashes[] = { "//", "a//b", "//" };
