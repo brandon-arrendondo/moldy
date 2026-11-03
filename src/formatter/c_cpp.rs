@@ -270,7 +270,11 @@ impl<'a> Fmt<'a> {
 
         while i < children.len() {
             let child = children[i];
-            let blanks = self.source_blanks(prev_end, child.start_byte());
+            // Blank lines at the top of the file are dropped, however many.
+            let blanks = match i {
+                0 => 0,
+                _ => self.source_blanks(prev_end, child.start_byte()),
+            };
             let kind = child.kind();
 
             // A file the parser could not read as a whole is an `ERROR` whose

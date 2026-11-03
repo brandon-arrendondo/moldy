@@ -33,6 +33,9 @@ What changed for users of Moldy, newest release first. See
   space before its name: `void f(std::vector<int> v)` gave
   `std::vector<int>v`. The name now keeps its space, as it did in a
   declaration.
+- C and C++: of the blank lines at the top of a file, all but one were
+  dropped, so each run dropped one more and the output was never
+  stable. All of them are now dropped.
 
 ## [0.8.0] - 2026-11-03
 
