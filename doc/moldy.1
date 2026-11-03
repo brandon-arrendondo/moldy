@@ -22,12 +22,14 @@ or checks whether any file would change
 moldy uses tree-sitter to parse source files and is the spiritual successor
 to
 .BR funky (1).
-It supports C, C++, Rust, Python, JSON, YAML, Markdown, CMake, and Bash.
+It supports C, C++, Rust, Python, JSON, YAML, Markdown, CMake, Bash, and
+reStructuredText.
 C/C++ formatting targets funky's rules; checked-in corpus tests verify the
 expected output on those fixtures.
 Rust and Python presets implement selected rustfmt and Black-style policies.
 JSON follows jq, YAML and Markdown follow Prettier, CMake follows gersemi,
-and Bash follows Prettier's shell plugin. Compatibility limits are
+Bash follows Prettier's shell plugin, and reStructuredText follows
+docstrfmt's layout. Compatibility limits are
 described in the usage guide.
 .PP
 The formatter is Unicode-safe: identifiers, string literals, and comments
@@ -197,6 +199,10 @@ max_width = 80
 [bash]
 indent_width = 2
 
+[rst]
+indent_width = 4
+max_width = 88
+
 [ignore]
 patterns = ["vendor/**", "third_party/**", "*.pb.h"]
 .fi
@@ -237,7 +243,7 @@ conditional, such as an include guard, is always kept as written. Each run parse
 compares its tokens, comments, where each comment sits and line structure
 with the input's; a file
 whose code would change is left unchanged, named on standard error as not
-formatted, and the run exits with status 3. The JSON, YAML, Markdown, CMake and Bash formatters leave a
+formatted, and the run exits with status 3. The JSON, YAML, Markdown, CMake, Bash and reStructuredText formatters leave a
 file with any syntax error unchanged, name it on standard error as not
 formatted, and the run exits with status 3. An in-place
 error does not roll back files already written.
