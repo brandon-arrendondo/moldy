@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-03
+
 ### Fixed
 
 - C and C++: a line comment inside a declaration was followed by the
