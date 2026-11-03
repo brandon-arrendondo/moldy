@@ -878,11 +878,13 @@ fn rst_corpus_keeps_meaning() {
 /// docstrfmt's. docstrfmt refuses attributions, option lists, empty fields
 /// and a list of separate lists; it formats Python code with black, drops
 /// admonition options, sorts and lowercases targets, deletes `\ ` escapes,
-/// collapses spaces in inline literals, and re-renders tables, all of which
-/// moldy keeps. The kept-as-written fixture keeps input the grammar
+/// collapses spaces in inline literals, re-renders tables, and joins a
+/// directive's arguments continued on the lines below the header into one
+/// line, all of which moldy keeps. The kept-as-written fixture keeps input the grammar
 /// misreads, and refused and malformed input is returned unchanged.
 const RST_DOCSTRFMT_DEVIATIONS: &[&str] = &[
     "blocks.rst",
+    "directive_arguments.rst",
     "explicit_markup.rst",
     "kept_as_written.rst",
     "lists.rst",

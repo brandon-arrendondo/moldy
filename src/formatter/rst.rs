@@ -1793,13 +1793,18 @@ impl<'a> Rst<'a> {
         header
     }
 
+    /// The arguments on the header line. Arguments can continue on the
+    /// lines below it, up to the first blank line; those lines are read
+    /// with the rest of the directive (`rows_after`), so taking them here
+    /// as well would repeat them.
     fn directive_args(&self, node: Node) -> Option<String> {
         let body = child_of_kind(node, "body")?;
         let args = child_of_kind(body, "arguments")?;
-        Some(
-            self.words(args.start_byte(), args.end_byte(), args)
-                .join(" "),
-        )
+        let start = args.start_byte();
+        let end = self.src[start..args.end_byte()]
+            .find(['\r', '\n'])
+            .map_or(args.end_byte(), |i| start + i);
+        Some(self.words(start, end, args).join(" "))
     }
 
     /// The directive's option lines, normalized, if each option is on one
