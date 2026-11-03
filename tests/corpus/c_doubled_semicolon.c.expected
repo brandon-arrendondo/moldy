@@ -1,0 +1,17 @@
+/* An empty statement after code on its line stays on that line; one on
+   a line of its own keeps its column 0. */
+struct s {
+    int a;
+};;
+int x;;
+
+;
+void f(void)
+{
+    int y = 1;;
+    struct t {
+        int b;
+    };;
+    (void)y;
+;
+}

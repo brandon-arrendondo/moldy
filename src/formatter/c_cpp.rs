@@ -345,7 +345,15 @@ impl<'a> Fmt<'a> {
                     self.nl();
                 }
                 "expression_statement" if is_null_stmt(child) => {
-                    // Null stmt at top level: always column 0 (funky invariant).
+                    // Null stmt at top level: column 0 (funky invariant), or
+                    // after the code before it on its source line (`};;`).
+                    if self.out.ends_with('\n') {
+                        self.out.pop();
+                        self.at_bol = false;
+                        if !self.follows_on_its_line(child) {
+                            self.nl();
+                        }
+                    }
                     self.raw(";");
                     if let Some(cmt) = trailing_comment {
                         self.space();
@@ -492,6 +500,16 @@ impl<'a> Fmt<'a> {
             '\t' => (col / tab + 1) * tab,
             _ => col + 1,
         })
+    }
+
+    /// Whether `node` follows code on its source line, and the output is
+    /// still on that code's line.
+    fn follows_on_its_line(&self, node: Node) -> bool {
+        !self.at_bol
+            && node.prev_sibling().is_some_and(|prev| {
+                prev.kind() != "comment"
+                    && !self.src[prev.end_byte()..node.start_byte()].contains('\n')
+            })
     }
 
     /// Whether `node` is a comment that ends its line in the source.
@@ -1066,8 +1084,11 @@ impl<'a> Fmt<'a> {
             } else if self.comment_space.take() == Some(self.out.len()) && self.out.ends_with(' ') {
                 self.out.pop();
             }
-        } else if (null_stmt && self.out.ends_with('}')) || after_comment {
+        } else if (null_stmt && (self.out.ends_with('}') || self.follows_on_its_line(child)))
+            || after_comment
+        {
             // Null stmt right after `}`: emit `;` inline (funky: `};`).
+            // One after code on its source line stays there (`};;`).
             // After a comment on its line, the statement follows it.
         } else {
             self.emit_blank_lines(blanks);

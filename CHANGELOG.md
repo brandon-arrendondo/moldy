@@ -26,6 +26,13 @@ What changed for users of Moldy, newest release first. See
   check declined the file. The `;` now stays on the comment's line only
   where the source has it there.
 
+### Changed
+
+- C and C++: an empty statement after code on its source line stays on
+  that line: `class W {};;` and `int x;;` keep their second `;`, which
+  went to a line of its own at column 0, also inside a body. An empty
+  statement on a line of its own is unchanged.
+
 ## [0.7.3] - 2026-11-03
 
 ### Fixed

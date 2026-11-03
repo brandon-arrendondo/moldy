@@ -1,0 +1,17 @@
+// The same in C++ class, namespace and function bodies.
+namespace ns
+{
+    class W {
+    };;
+    int x;;
+}
+class V {
+};;
+
+void f()
+{
+    struct S {
+    };;
+    int y = 1;;
+    (void)y;
+}
