@@ -1,5 +1,6 @@
 mod bash;
 mod c_cpp;
+mod c_lex;
 mod cmake;
 mod cmake_signatures;
 mod json;

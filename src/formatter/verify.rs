@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use tree_sitter::Node;
 
+use super::c_lex;
 use crate::error::MoldyError;
 
 /// The token edits a formatter may make.
@@ -116,7 +117,34 @@ pub(super) fn check_tokens(
             i.unwrap_or(before.code.len()),
         )));
     }
+    if layout == Layout::Directives {
+        if let Some(row) = relexed_differently(source, output, language_key == "cpp", braces) {
+            return Err(unverified(row));
+        }
+    }
     Ok(())
+}
+
+/// For C and C++, where the grammar's reading of the output can agree
+/// with the input's while a compiler's does not (`:::` is `:` `::` to
+/// tree-sitter-cpp and `::` `:` to a compiler; an unterminated `/*` is
+/// not a comment to either grammar), the row of the first input token
+/// that the output, read as a compiler reads it, does not have, or
+/// `None` if every token matches. With `braces`, braces are not
+/// compared: the tree-sitter check has already held each added brace to
+/// a body, and no punctuator holds a brace, so none can join another.
+fn relexed_differently(source: &str, output: &str, cpp: bool, braces: bool) -> Option<usize> {
+    let read = |text: &str| {
+        let mut t = c_lex::tokens(text, cpp);
+        if braces {
+            t.retain(|t| !matches!(t.text.as_str(), "{" | "}"));
+        }
+        t
+    };
+    let (before, after) = (read(source), read(output));
+    let differ = (0..before.len().max(after.len()))
+        .find(|&i| before.get(i).map(|t| &t.text) != after.get(i).map(|t| &t.text))?;
+    Some(before.get(differ).or(before.last()).map_or(0, |t| t.row))
 }
 
 /// Matches `after`'s code tokens to `before`'s, in one pass: each output
@@ -989,6 +1017,64 @@ mod tests {
             &Edits::NONE,
             "int a = b - > c;\n",
             "int a = b -> c;\n"
+        ));
+    }
+
+    #[test]
+    fn tokens_a_compiler_joins_are_found() {
+        // tree-sitter-cpp reads `:::` as `:` `::`; a compiler reads `::` `:`.
+        let source = "int f(bool d) { return d ? ::g() : ::h(); }\n";
+        assert!(!passes(
+            "cpp",
+            &Edits::NONE,
+            source,
+            "int f(bool d) { return d ?::g() :::h(); }\n"
+        ));
+        let source = "struct S : B { unsigned x : ::N; S() : ::B() {} };\n";
+        assert!(!passes(
+            "cpp",
+            &Edits::NONE,
+            source,
+            "struct S : B { unsigned x :::N; S() :::B() {} };\n"
+        ));
+        // Neither grammar reads an unterminated `/*` as a comment.
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            "int f(int a, int *b) { return a / *b; }\n",
+            "int f(int a, int *b) { return a /*b; }\n"
+        ));
+        assert!(!passes(
+            "cpp",
+            &Edits::NONE,
+            "auto s = operator\"\" _t(\"a\", 1);\n",
+            "auto s = operator\"\"_t(\"a\", 1);\n"
+        ));
+    }
+
+    #[test]
+    fn tokens_a_compiler_reads_the_same_pass() {
+        for source in [
+            "std::vector<::T> v;\n",
+            "int a = b ?::f() : c;\n",
+            "auto s = \"a\"_s;\n",
+            "#define A(x) \\\n    (x)\nint a;\n",
+        ] {
+            assert!(passes("cpp", &Edits::NONE, source, source), "{source}");
+        }
+        assert!(passes(
+            "c",
+            &Edits::NONE,
+            "int a=b/ *c;\n#define B(x)   \\\n  x\n",
+            "int a = b / *c;\n#define B(x) \\\n  x\n"
+        ));
+        // A byte order mark is not a token.
+        assert!(passes("c", &Edits::NONE, "\u{feff}int a;\n", "int a;\n"));
+        assert!(passes(
+            "c",
+            &braces(),
+            "void f(int a) { if (a) g(); }\n",
+            "void f(int a)\n{\n    if (a) {\n        g();\n    }\n}\n"
         ));
     }
 

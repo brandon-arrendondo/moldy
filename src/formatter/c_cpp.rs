@@ -3,6 +3,7 @@
 // Goal: produce output identical to funky for all C/C++ files.
 // Reference: ../funky/src/formatter.rs  (config is intentionally identical)
 
+use super::c_lex;
 use super::output::{has_blank_line, OutputOps};
 use crate::config::{Config, PointerAlign, SpaceOption};
 use crate::error::MoldyError;
@@ -30,6 +31,7 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
 
     // Continue even if tree has errors; unknown nodes emit their source text.
     let mut fmt = Fmt::new(source, config);
+    fmt.cpp = lang_key == "cpp";
     fmt.emit_translation_unit(tree.root_node());
     let output = fmt.finish();
 
@@ -93,6 +95,9 @@ struct Fmt<'a> {
     // Set by a body that holds only block comments written on one line
     // with its braces: its `}` follows them on that line.
     close_inline: bool,
+    // Whether the source is C++, whose tokens differ a little from C's
+    // when two are written together (see `c_lex`).
+    cpp: bool,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -151,6 +156,7 @@ impl<'a> Fmt<'a> {
             body_comment: None,
             comment_space: None,
             close_inline: false,
+            cpp: false,
         }
     }
 
@@ -3310,7 +3316,53 @@ impl<'a> Fmt<'a> {
         }
     }
 
+    /// The space before `node`, after `prev`: what the layout rules give,
+    /// except that two tokens that would read as others when written
+    /// together (`+` `+`, `/` `*`, `:` `::`) are always kept apart.
     fn ws_before<'t>(&self, node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
+        let ws = self.ws_before_layout(node, prev);
+        match (ws, prev) {
+            (Ws::None, Some(prev)) if self.would_join(prev, node) => Ws::Space,
+            _ => ws,
+        }
+    }
+
+    /// Whether the token ending at leaf `prev` and the one starting at
+    /// leaf `node`, written with nothing between them, read as other
+    /// tokens. Leaves written together in the source read there as they
+    /// will in the output, even where the grammar split a token (`&&`
+    /// read as two `&`); the leaves of a literal are one token; and a
+    /// comment joins nothing, as a line break follows it where it must.
+    fn would_join(&self, prev: Node, node: Node) -> bool {
+        if prev.end_byte() == node.start_byte() {
+            return false;
+        }
+        let (left, right) = (literal_or_leaf(prev), literal_or_leaf(node));
+        left != right
+            && left.kind() != "comment"
+            && right.kind() != "comment"
+            && c_lex::joins(self.node_text(left), self.node_text(right), self.cpp)
+    }
+
+    /// The space before a `::`. One that starts a name (`::f`, `::delete`)
+    /// names the global scope, and is spaced as the name's next token
+    /// would be there: `a ? ::f() : ::g()`, `return ::f()`, `(::f)`.
+    /// Any other `::` follows its scope with no space.
+    fn ws_before_scope<'t>(&self, node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
+        match node
+            .next_sibling()
+            .filter(|_| node.prev_sibling().is_none())
+        {
+            Some(next) => self.ws_before_layout(first_leaf_of(next), prev),
+            None => Ws::None,
+        }
+    }
+
+    /// The space the layout rules put before leaf `node`, after leaf
+    /// `prev` (`None` at the start of an expression): funky's spacing,
+    /// by the two tokens' kinds and their parents. `ws_before` then keeps
+    /// apart any two tokens these rules would join.
+    fn ws_before_layout<'t>(&self, node: Node<'t>, prev: Option<Node<'t>>) -> Ws {
         let kind = node.kind();
         let text = self.node_text(node);
         let prev_kind = prev.map(|n| n.kind()).unwrap_or("");
@@ -3404,7 +3456,7 @@ impl<'a> Fmt<'a> {
         // No space before these closers/separators.
         match kind {
             ")" | ";" => return Ws::None,
-            "::" => return Ws::None,
+            "::" => return self.ws_before_scope(node, prev),
             "," => return Ws::None,
             "." | "->" => {
                 // Allow space before `.` when it's a field_designator (`.x = val` in initializers).
@@ -3944,6 +3996,26 @@ fn is_unary_prefix(kind: &str, node: Option<Node<'_>>) -> bool {
         }
     }
     false
+}
+
+/// The literal that leaf `node` is part of, or `node` itself.
+fn literal_or_leaf(mut node: Node<'_>) -> Node<'_> {
+    while let Some(p) = node.parent().filter(|p| {
+        matches!(
+            p.kind(),
+            "string_literal" | "char_literal" | "raw_string_literal" | "user_defined_literal"
+        )
+    }) {
+        node = p;
+    }
+    node
+}
+
+fn first_leaf_of(mut node: Node<'_>) -> Node<'_> {
+    while let Some(child) = node.child(0) {
+        node = child;
+    }
+    node
 }
 
 fn last_leaf_of(mut node: Node<'_>) -> Node<'_> {

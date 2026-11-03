@@ -5,6 +5,36 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C++: a name starting with the global scope `::` after a `?` or `:`
+  lost the space before it, joining the tokens: `d ? ::f() : ::g()` gave
+  `d ?::f() :::g()`, and a bit-field width `x : ::N` and a constructor
+  initializer `S() : ::B()` gave `:::`, which a compiler reads as `::`
+  then `:`. The output did not compile and Moldy exited 0. The `::` now
+  keeps its space.
+- C and C++: two tokens written apart could be written together, where
+  a compiler reads them as others: `a / *p` became `a /*p`, which opens
+  a comment, and in C++ `"name[" NAME "]"` became `"name["NAME`, a
+  string with a literal suffix, so the macro `NAME` was not expanded.
+  Two tokens are now never written together where a compiler would read
+  them as others. Files Moldy declined for such a join are now
+  formatted: `- -a`, `operator new`, `p __attribute__((unused))`,
+  `__asm__ __volatile__`, `#if defined(A)` inside an `enum`, and C++20
+  `concept C = ...`.
+- C and C++: the check every run makes now reads the output as a
+  compiler does, besides with tree-sitter, so a file whose tokens a
+  compiler would read differently is declined (exit 3) instead of
+  written.
+
+### Changed
+
+- C++: a global-scope `::` takes the space the name it starts would
+  take: `a = ::f()`, `a += ::X`, `f(a, ::b)`, `a < ::X`, `new ::T`,
+  `throw ::X`, `sizeof ::X`, `public ::B`, `<class T = ::B>`. These were
+  written with no space before the `::` (`a =::f()`). After `(`, `!` and
+  at the start of a line nothing changes.
+
 ## [0.7.2] - 2026-11-01
 
 ### Fixed

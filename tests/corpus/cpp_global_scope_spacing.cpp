@@ -1,0 +1,19 @@
+// A global-scope `::` written tight, or on a line of its own, after the
+// tokens it could otherwise be joined to.
+int dup2(int fd, int to);
+int fcntl(int fd, int cmd);
+namespace N { const int X = 3; }
+struct W { unsigned w : ::N::X; };
+int pick(bool dup, int fd)
+{
+    int r = dup?::dup2(fd, 1): ::fcntl(fd, 1);
+    r = dup ?   ::dup2(fd, 2)   :   ::fcntl(fd, 2);
+    r = dup
+        ? ::dup2(fd, 3)
+        : ::fcntl(fd, 3);
+    switch (r) { case ::N::X: return r; }
+    r=::N::X;
+    return dup ?
+        ::dup2(fd, 4) :
+        ::fcntl(fd, 4);
+}

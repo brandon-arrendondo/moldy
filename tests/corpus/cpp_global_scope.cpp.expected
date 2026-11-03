@@ -1,0 +1,64 @@
+// A `::` that starts a name names the global scope. It is spaced as the
+// name would be, and never written against a `?`, `:` or `::` before it.
+#include <cstddef>
+#include <new>
+#include <vector>
+
+namespace N
+{
+    const int X = 3;
+    int g();
+    struct B {
+        B() {}
+    };
+}
+
+int dup2(int fd, int to);
+int fcntl(int fd, int cmd);
+
+struct D : ::N::B {
+    unsigned bits : ::N::X;
+    D() : ::N::B(), bits(0) {}
+};
+
+class E: public ::N::B {
+};
+
+template<class T = ::N::B>
+struct Holder {
+    T value;
+};
+
+static std::vector<::N::B> items;
+
+int choose(bool dup, int fd)
+{
+    return dup ? ::dup2(fd, 1) : ::fcntl(fd, 1);
+}
+
+int scoped(int r)
+{
+    int a = ::N::X;
+
+    a = r ? ::N::X : ::N::g();
+    a += ::N::X;
+    a = (r, ::N::g());
+    a = r < ::N::X;
+    a = r & ::N::X;
+    a = !::N::X + (::N::X);
+    switch (r) {
+        case ::N::X:
+            break;
+        default:
+            break;
+    }
+    ::N::B *b = new ::N::B;
+    ::delete b;
+    ::operator delete(::operator new(sizeof ::N::X));
+    if (a < 0) {
+        throw ::N::X;
+    }
+done:
+    ::N::g();
+    return ::N::g();
+}

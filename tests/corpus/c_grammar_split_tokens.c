@@ -1,0 +1,9 @@
+/* The grammar reads `!(r) && a` as a cast of `&&a`, splitting `&&` into
+ * two `&`. Written together in the source, they stay together. */
+int f(int r, int a)
+{
+    if (!(r) && a > 0) {
+        return 1;
+    }
+    return 0;
+}

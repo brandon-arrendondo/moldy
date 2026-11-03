@@ -1,0 +1,14 @@
+// The grammar reads `at < lo || at >= hi` as a template, splitting `>=`
+// into `>` and `=`. Written together in the source, they stay together.
+struct Q {
+    unsigned len;
+};
+int f(Q *q, unsigned lo, unsigned hi)
+{
+    for (unsigned at = 0; at < q->len; at++) {
+        if (q && (at<lo || at>= hi)) {
+            return 1;
+        }
+    }
+    return 0;
+}

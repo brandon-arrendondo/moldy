@@ -32,6 +32,7 @@ is no repository-local task database or `.todo-sqlite-cli` marker.
 | `src/formatter/cmake.rs`             | CMake layout targeting gersemi; `cmake_signatures.rs` holds Moldy's own command signature table.                          |
 | `src/formatter/bash.rs`              | Bash layout targeting Prettier's shell plugin (shfmt printer).                                                            |
 | `src/formatter/verify.rs`            | Token check for C, C++, Rust and Python: re-parses output, compares tokens, comments and line structure.                  |
+| `src/formatter/c_lex.rs`             | C/C++ maximal-munch lexer, independent of tree-sitter: keeps the emitter from joining tokens; re-reads output in the check. |
 | `src/formatter/line_endings.rs`      | Maps source line endings onto formatted output.                                                                           |
 | `src/formatter/output.rs`            | Shared output operations.                                                                                                 |
 | `src/presets.rs`                     | Embedded preset lookup.                                                                                                   |
@@ -54,7 +55,10 @@ written, and a token the parser invented is never emitted. `verify.rs`
 parses every output again and returns `MoldyError::Unverified` unless its
 tokens, comments and line structure match the input's, apart from the
 edits a rule makes (braces from `add_braces_*`; Rust and Python trailing
-commas that change nothing; Python line continuations). Do not widen those
+commas that change nothing; Python line continuations). For C and C++ it
+also re-reads both texts with `c_lex.rs`, as a compiler reads them, since
+tree-sitter can read joined tokens (`:::`, an unterminated `/*`) as the
+input's; the emitter never writes two tokens together that `c_lex::joins`. Do not widen those
 edits to make a check pass; keep it passing on real code, not only the
 corpus. The JSON, YAML, Markdown, CMake and Bash formatters
 return `MoldyError::Syntax` for any syntax error (`root.has_error()`); the
