@@ -53,6 +53,10 @@ What changed for users of Moldy, newest release first. See
   left the comments out of line until a second run moved them. A line
   is now judged by its code alone, and the comments are aligned after
   the `=`.
+- C and C++: a `#define` whose last `\` continued onto an empty line
+  lost that line, so the blank line after the definition became its
+  last line, and a second run declined the output. The empty line is
+  now kept, with the blank line after it.
 
 ## [0.8.0] - 2026-11-03
 

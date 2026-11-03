@@ -409,7 +409,11 @@ impl<'a> Fmt<'a> {
         if node.end_byte() <= self.directive_end {
             return;
         }
-        let text = self.node_text(node).trim_end_matches(['\r', '\n']);
+        // Only the directive's own line ending goes: a definition whose
+        // `\` continues onto an empty line keeps that line.
+        let text = self.node_text(node);
+        let text = text.strip_suffix('\n').unwrap_or(text);
+        let text = text.strip_suffix('\r').unwrap_or(text);
         self.raw(text);
         self.nl();
     }
