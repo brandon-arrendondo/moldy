@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-03
+
 ### Fixed
 
 - C++: a name starting with the global scope `::` after a `?` or `:`
