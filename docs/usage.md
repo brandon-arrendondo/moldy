@@ -114,6 +114,8 @@ A run that selects no files is incomplete, because a check of nothing does not e
 
 C/C++ targets funky's rules, verified against checked-in fixtures.
 
+In every language, Moldy formats its output a second time before writing it. If that changes a byte, or a second run would decline the output, the file is left unchanged and declined as not stable, for example `a.yaml: not formatted (YAML output is not stable (output line 61))`, and the run exits 3. The line is the output's, which may be far from the input's: there, the one line `a: [[[...]]]` laid out one bracket a line. So a file Moldy writes is one a later run leaves as it is. A YAML flow sequence nested more than about 58 levels deep is declined this way: its block layout nests deeper than the source and passes the nesting limit. The second pass adds about a third to the time a run takes.
+
 ### C, C++, Rust and Python: code is never changed
 
 Formatting changes layout, never code. A statement or item that holds a syntax error, such as `return 1` without its `;` or a declaration after a macro the parser cannot expand (`EXPORT struct widget *make(void);`), is kept as written, with its lines and indentation; the rest of the file is formatted, apart from the C and C++ code that is always kept as written (see below). Moldy does not add the token the parser assumed was missing, and does not drop or join tokens around it. A successful run is not a syntax check: a file with errors is formatted around them.

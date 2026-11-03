@@ -651,9 +651,11 @@ fn deep_nesting_is_left_unchanged() {
             "deep.json",
             format!("{}1{}", "[".repeat(150), "]".repeat(150)),
         ),
+        // A flow sequence is laid out in block style, which nests deeper:
+        // 58 levels is the deepest whose output a second run still reads.
         (
             "deep.yaml",
-            format!("a: {}1{}\n", "[".repeat(100), "]".repeat(100)),
+            format!("a: {}1{}\n", "[".repeat(58), "]".repeat(58)),
         ),
         ("deep.md", format!("{} x\n", "> ".repeat(100))),
         (
@@ -682,6 +684,14 @@ fn deep_nesting_is_left_unchanged() {
     for (name, source) in &within {
         format_source(Path::new(name), source, &Config::default())
             .unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+    // Deeper, the source is within the limit but its block layout is
+    // not, so the output is one a second run would decline, and the
+    // file is left unchanged instead.
+    let source = format!("a: {}1{}\n", "[".repeat(100), "]".repeat(100));
+    match format_source(Path::new("deep.yaml"), &source, &Config::default()) {
+        Err(MoldyError::Unstable { line, .. }) => assert!(line > 1, "line {line}"),
+        other => panic!("expected Unstable, got {:?}", other.map(|_| ())),
     }
 }
 

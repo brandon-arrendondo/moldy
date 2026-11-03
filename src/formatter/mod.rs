@@ -51,7 +51,17 @@ pub fn format_source_with_line_endings(
         key => key,
     };
 
-    let formatted = match key {
+    let formatted = format_key(key, source, config)?;
+    if let Some((language, edits)) = token_edits(key, config) {
+        verify::check_tokens(language, key, source, &formatted, &edits)?;
+    }
+    check_stable(key, &formatted, config, || language_name(path, source))?;
+    Ok(line_endings::restore(source, &formatted, policy))
+}
+
+/// Formats `source` with the formatter for the language `key`.
+fn format_key(key: &str, source: &str, config: &Config) -> Result<String, MoldyError> {
+    match key {
         "c" | "cpp" => c_cpp::format(source, key, config),
         "rust" => rust::format(source, config),
         "python" => python::format(source, config),
@@ -62,11 +72,40 @@ pub fn format_source_with_line_endings(
         "bash" => bash::format(source, config),
         "rst" => rst::format(source, config),
         key => Err(MoldyError::UnsupportedLanguage(key.to_string())),
-    }?;
-    if let Some((language, edits)) = token_edits(key, config) {
-        verify::check_tokens(language, key, source, &formatted, &edits)?;
     }
-    Ok(line_endings::restore(source, &formatted, policy))
+}
+
+/// `MoldyError::Unstable` unless formatting `formatted`, a formatter's
+/// output, gives it back byte for byte: output a second run would change
+/// is never written. `language` names the file's language for the error.
+fn check_stable(
+    key: &str,
+    formatted: &str,
+    config: &Config,
+    language: impl FnOnce() -> &'static str,
+) -> Result<(), MoldyError> {
+    let line = match format_key(key, formatted, config) {
+        Ok(again) if again == formatted => return Ok(()),
+        Ok(again) => {
+            formatted
+                .split_inclusive('\n')
+                .zip(again.split_inclusive('\n'))
+                .take_while(|(a, b)| a == b)
+                .count()
+                + 1
+        }
+        // The output is one a second run would decline: where it stops.
+        Err(
+            MoldyError::Syntax { line, .. }
+            | MoldyError::Unverified { line, .. }
+            | MoldyError::TooDeep { line, .. },
+        ) => line,
+        Err(_) => 1,
+    };
+    Err(MoldyError::Unstable {
+        language: language().to_string(),
+        line,
+    })
 }
 
 /// For a formatter that continues over syntax errors, its language's
@@ -325,6 +364,7 @@ fn language_name(path: &Path, source: &str) -> &'static str {
         "markdown" => "Markdown",
         "cmake" => "CMake",
         "bash" => "Bash",
+        "rst" => "reStructuredText",
         _ => "The file",
     }
 }
@@ -371,6 +411,24 @@ fn write_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_formatted_language_is_named_in_messages() {
+        for name in [
+            "a.c",
+            "a.cpp",
+            "a.rs",
+            "a.py",
+            "a.json",
+            "a.yaml",
+            "a.md",
+            "CMakeLists.txt",
+            "a.sh",
+            "a.rst",
+        ] {
+            assert_ne!(language_name(Path::new(name), ""), "The file", "{name}");
+        }
+    }
 
     #[test]
     fn work_on_the_worker_stack_returns_its_result() {

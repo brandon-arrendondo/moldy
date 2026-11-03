@@ -65,6 +65,18 @@ pub enum MoldyError {
         line: usize,
     },
 
+    /// Formatting the output again would change it, so the file is left
+    /// unchanged rather than given output that is not stable. Every
+    /// formatter's output is checked this way.
+    #[error("{language} output is not stable (output line {line}); file left unchanged")]
+    Unstable {
+        /// The language of the file.
+        language: String,
+        /// 1-based line of the OUTPUT where it and its formatting first
+        /// differ, or where a second run declined it.
+        line: usize,
+    },
+
     /// The file nests deeper than the formatter accepts, so it is left
     /// unchanged. Every formatter returns this rather than exhaust the
     /// stack or the grammar's limits: C, C++, Rust and Python past 2,000

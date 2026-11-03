@@ -237,6 +237,7 @@ fn format_text(path: &Path, source: &str, cli: &Cli, config: &Config) -> (Status
         Ok(Err(
             err @ (MoldyError::Syntax { .. }
             | MoldyError::Unverified { .. }
+            | MoldyError::Unstable { .. }
             | MoldyError::TooDeep { .. }),
         )) => {
             if mode(cli) == Mode::Stdout {

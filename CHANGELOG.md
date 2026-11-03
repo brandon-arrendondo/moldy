@@ -29,6 +29,14 @@ What changed for users of Moldy, newest release first. See
   one with a trailing line comment already had. This covers enum
   members (`A = 1, /* a */`) and also the declarators of a declaration
   split across lines (`int a = 1, /* a */` then `bbb = 2, /* b */`).
+- Every file, in every language, is formatted a second time from its
+  own output before it is written. If that changes the output, or a
+  second run would decline it, the file is left unchanged and declined
+  with `output is not stable (output line N)`, and the run exits 3; `N`
+  counts lines of the output. A file Moldy formats is therefore one a
+  later run leaves as it is. A YAML flow sequence nested more than about
+  58 levels deep, formatted before, is now declined: its block layout is
+  too deep for a second run. A run takes about a third longer.
 
 ### Fixed
 

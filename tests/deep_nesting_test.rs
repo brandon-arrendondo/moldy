@@ -111,3 +111,33 @@ fn the_tree_dump_declines_what_the_formatters_decline() {
         assert!(lines > 1950, "{name}: {lines} lines");
     }
 }
+
+/// Output a second run would decline is not written: the file is declined
+/// as not stable, exit 3, and standard input is printed as read.
+#[test]
+fn output_a_second_run_would_decline_is_declined_as_not_stable() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let source = format!("a: {}1{}\n", "[".repeat(100), "]".repeat(100));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_moldy"))
+        .args(["--stdin-filename", "deep.yaml", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("moldy starts");
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(source.as_bytes())
+        .expect("source is written");
+    let output = child.wait_with_output().expect("moldy finishes");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), source);
+    assert!(
+        stderr.contains("YAML output is not stable (output line"),
+        "{stderr}"
+    );
+}
