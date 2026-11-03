@@ -57,6 +57,9 @@ What changed for users of Moldy, newest release first. See
   lost that line, so the blank line after the definition became its
   last line, and a second run declined the output. The empty line is
   now kept, with the blank line after it.
+- C and C++: an enum member without a value whose trailing comment held
+  an `=` (`B, // b = c`) split the members around it into two groups,
+  aligned apart. Such a member is now judged by its code too.
 
 ## [0.8.0] - 2026-11-03
 

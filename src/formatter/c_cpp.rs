@@ -4605,15 +4605,20 @@ fn align_enum_equals(output: &str, on_tabstop: bool, tab_width: usize) -> String
     let n = lines.len();
     // A line inside a block comment is text, not a member.
     let mut in_block = false;
-    let cols: Vec<Option<usize>> = lines
+    // A line is judged by its code: a trailing comment's last word or its
+    // `=` (`f(a); // x = y`, `B, // b = c`) makes no member, and breaks no
+    // group.
+    let codes: Vec<(&str, bool)> = lines
         .iter()
         .map(|l| {
             let in_comment = in_block;
-            // A member is judged by its code: a trailing comment's last
-            // word or its `=` (`f(a); // x = y`) makes no member.
-            let code = &l[..trailing_comment_col(l, &mut in_block).unwrap_or(l.len())];
-            enum_eq_col(code).filter(|_| !in_comment)
+            let end = trailing_comment_col(l, &mut in_block).unwrap_or(l.len());
+            (&l[..end], in_comment)
         })
+        .collect();
+    let cols: Vec<Option<usize>> = codes
+        .iter()
+        .map(|&(code, in_comment)| enum_eq_col(code).filter(|_| !in_comment))
         .collect();
     let mut result: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
 
@@ -4625,10 +4630,10 @@ fn align_enum_equals(output: &str, on_tabstop: bool, tab_width: usize) -> String
             let mut j = i + 1;
             while j < n
                 && (cols[j].is_some()
-                    || is_bare_enum_member(lines[j])
+                    || is_bare_enum_member(codes[j].0)
                     || lines[j].trim().is_empty()
                     || lines[j].trim_start().starts_with('#')
-                    || is_enum_comment_line(lines[j]))
+                    || is_enum_comment_line(codes[j].0))
             {
                 j += 1;
             }
