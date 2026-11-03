@@ -12,6 +12,10 @@ What changed for users of Moldy, newest release first. See
   its own at column 0, and formatting the output again indented it, so
   the output was never stable. The `:` now stays on the label's line;
   after a line comment it starts the next line.
+- C++: a parameter whose type ends in a template's arguments lost the
+  space before its name: `void f(std::vector<int> v)` gave
+  `std::vector<int>v`. The name now keeps its space, as it did in a
+  declaration.
 
 ## [0.8.0] - 2026-11-03
 

@@ -3432,7 +3432,9 @@ impl<'a> Fmt<'a> {
         let ws = self.ws_before_layout(node, prev);
         match (ws, prev) {
             (Ws::None, Some(prev))
-                if self.would_join(prev, node) || self.spaced_comment(prev, node) =>
+                if self.would_join(prev, node)
+                    || self.spaced_comment(prev, node)
+                    || self.word_after_template(prev, node) =>
             {
                 Ws::Space
             }
@@ -3448,6 +3450,24 @@ impl<'a> Fmt<'a> {
         prev.end_byte() < node.start_byte()
             && (node.kind() == "comment" && !matches!(prev.kind(), "(" | "[" | "{")
                 || prev.kind() == "comment" && !matches!(node.kind(), ")" | "]" | "}" | "," | ";"))
+    }
+
+    /// Whether `node` is a word after the `>` that closes a template's
+    /// arguments or parameters, as a declarator after its type is:
+    /// `std::vector<int> v`, where the rules inside the brackets left
+    /// `<int>v`.
+    fn word_after_template(&self, prev: Node, node: Node) -> bool {
+        prev.kind() == ">"
+            && prev.next_sibling().is_none()
+            && prev.parent().is_some_and(|list| {
+                matches!(
+                    list.kind(),
+                    "template_parameter_list" | "template_argument_list"
+                )
+            })
+            && self
+                .node_text(node)
+                .starts_with(|c: char| c.is_alphanumeric() || c == '_')
     }
 
     /// Whether the token ending at leaf `prev` and the one starting at
