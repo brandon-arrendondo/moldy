@@ -19,8 +19,12 @@ What changed for users of Moldy, newest release first. See
 - `--dump-tree` aborted with a stack overflow on a file nested tens of
   thousands of levels deep. It now walks the tree without recursion and
   declines a file nested more than 2,000 levels, as the C, C++, Rust
-  and Python formatters do,
-  with the same error and exit 3.
+  and Python formatters do, with the same error and exit 3.
+- C and C++: a `struct`, `union`, `enum` or `class` in a body, followed
+  by a block comment and then its `;` on the next line (`class W {}
+  /* c */` then `;`), had the `;` pulled up after the comment, and the
+  check declined the file. The `;` now stays on the comment's line only
+  where the source has it there.
 
 ## [0.7.3] - 2026-11-03
 

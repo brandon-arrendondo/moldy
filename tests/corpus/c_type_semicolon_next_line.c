@@ -1,0 +1,9 @@
+/* The same for C structs, unions and enums in a function body. */
+void f(void)
+{
+    struct s { int a; } /* on the next line */
+    ;
+    union u { int a; float b; } /* on this line */;
+    enum e { E_A } /* on the next line */
+    ;
+}

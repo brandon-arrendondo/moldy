@@ -998,11 +998,13 @@ impl<'a> Fmt<'a> {
                             self.space();
                             self.raw(self.node_text(cmt).trim_end_matches(['\r', '\n']));
                             // The `;` that ends a type after a block
-                            // comment stays on its line; a line comment
-                            // ends the line.
-                            let semicolon = children.get(i + 2).is_some_and(|n| n.kind() == ";");
-                            let block = !self.node_text(cmt).starts_with("//");
-                            if semicolon && block && is_type_specifier(kind) {
+                            // comment stays on its line when the source
+                            // has it there; a line comment ends the line.
+                            let semicolon = children.get(i + 2).is_some_and(|n| {
+                                n.kind() == ";"
+                                    && !self.src[cmt.end_byte()..n.start_byte()].contains('\n')
+                            });
+                            if semicolon && is_type_specifier(kind) {
                                 held = true;
                             } else {
                                 self.nl();
