@@ -105,7 +105,7 @@ fn run() -> anyhow::Result<u8> {
 
     if cli.dump_tree {
         for path in &paths {
-            formatter::dump_tree(path, &read_source(path)?)?;
+            dump_tree(path, &read_source(path)?)?;
         }
         return Ok(0);
     }
@@ -124,6 +124,19 @@ fn run() -> anyhow::Result<u8> {
     run.print_summary();
     run.write_report(cli.completion_report.as_deref())?;
     Ok(run.exit_code())
+}
+
+/// Prints the syntax tree of `source`, read as `path`. A tree too deep to
+/// format is not dumped either, and the error says so rather than speak of
+/// the file.
+fn dump_tree(path: &Path, source: &str) -> anyhow::Result<()> {
+    formatter::dump_tree(path, source).map_err(|err| match err {
+        MoldyError::TooDeep { language, line } => anyhow::anyhow!(
+            "{}: {language} is nested too deeply to dump (line {line}); tree not dumped",
+            path.display()
+        ),
+        other => other.into(),
+    })
 }
 
 /// The name standard input is formatted as, when the one path named is
@@ -152,7 +165,7 @@ fn stdin_name(cli: &Cli) -> anyhow::Result<Option<&Path>> {
 fn run_stdin(cli: &Cli, config: &Config, ignore: &PathIgnore, name: &Path) -> anyhow::Result<u8> {
     let source = read_stdin(name);
     if cli.dump_tree {
-        formatter::dump_tree(name, &source?)?;
+        dump_tree(name, &source?)?;
         return Ok(0);
     }
     let mut run = Run::new(Mode::Stdout);

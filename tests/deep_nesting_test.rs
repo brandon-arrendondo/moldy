@@ -70,16 +70,16 @@ fn code_nested_just_inside_the_limit_is_formatted() {
     }
 }
 
-/// `--dump-tree` of `source` read as the file `name`: its exit status and
-/// how many lines it printed.
-fn dump_tree(name: &str, source: &str) -> (Option<i32>, usize) {
+/// `--dump-tree` of `source` read as the file `name`: its exit status, how
+/// many lines it printed, and its standard error.
+fn dump_tree(name: &str, source: &str) -> (Option<i32>, usize, String) {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let mut child = Command::new(env!("CARGO_BIN_EXE_moldy"))
         .args(["--dump-tree", "--stdin-filename", name, "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("moldy starts");
     child
@@ -90,16 +90,23 @@ fn dump_tree(name: &str, source: &str) -> (Option<i32>, usize) {
         .expect("source is written");
     let output = child.wait_with_output().expect("moldy finishes");
     let lines = String::from_utf8_lossy(&output.stdout).lines().count();
-    (output.status.code(), lines)
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    (output.status.code(), lines, stderr)
 }
 
 #[test]
 fn the_tree_dump_declines_what_the_formatters_decline() {
     // Far past the limit, where a recursive walk ran out of stack.
     let source = format!("int x = {}1{};\n", "(".repeat(50_000), ")".repeat(50_000));
-    assert_eq!(dump_tree("deep.c", &source), (Some(3), 0));
+    let (status, lines, stderr) = dump_tree("deep.c", &source);
+    assert_eq!((status, lines), (Some(3), 0));
+    assert!(
+        stderr.contains("deep.c: C is nested too deeply to dump (line 1); tree not dumped"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("left unchanged"), "{stderr}");
     for (name, source) in shapes(1950) {
-        let (status, lines) = dump_tree(name, &source);
+        let (status, lines, _) = dump_tree(name, &source);
         assert_eq!(status, Some(0), "{name}");
         assert!(lines > 1950, "{name}: {lines} lines");
     }
