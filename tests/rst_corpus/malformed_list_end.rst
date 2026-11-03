@@ -1,2 +1,2 @@
-- an item
-text right after it
+1. an item
+  text indented less than the body

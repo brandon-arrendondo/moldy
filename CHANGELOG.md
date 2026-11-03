@@ -37,6 +37,13 @@ What changed for users of Moldy, newest release first. See
   later run leaves as it is. A YAML flow sequence nested more than about
   58 levels deep, formatted before, is now declined: its block layout is
   too deep for a second run. A run takes about a third longer.
+- reStructuredText is read with tree-sitter-rst-next 0.3.1, which parses
+  more documents as docutils does, so fewer `.rst` files are declined
+  with a syntax error. A list, block quote, directive or comment
+  followed directly by a less indented line now ends there; a paragraph
+  that starts with an enumerator stays a paragraph when its next line
+  starts with a word and a period; and a list item whose marker is alone
+  on its line takes its body's indent from the lines below.
 
 ### Fixed
 

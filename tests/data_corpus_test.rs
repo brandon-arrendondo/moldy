@@ -885,8 +885,8 @@ fn rst_corpus_keeps_meaning() {
 }
 
 /// reStructuredText fixtures whose expected output knowingly differs from
-/// docstrfmt's. docstrfmt refuses attributions, option lists, empty fields
-/// and a list of separate lists; it formats Python code with black, drops
+/// docstrfmt's. docstrfmt refuses attributions, option lists, empty fields,
+/// a list of separate lists and a list ended by an unindented line; it formats Python code with black, drops
 /// admonition options, sorts and lowercases targets, deletes `\ ` escapes,
 /// collapses spaces in inline literals, re-renders tables, and joins a
 /// directive's arguments continued on the lines below the header into one
@@ -897,6 +897,7 @@ const RST_DOCSTRFMT_DEVIATIONS: &[&str] = &[
     "directive_arguments.rst",
     "explicit_markup.rst",
     "kept_as_written.rst",
+    "list_ends_at_unindent.rst",
     "lists.rst",
     "sections_and_paragraphs.rst",
     "tables.rst",
