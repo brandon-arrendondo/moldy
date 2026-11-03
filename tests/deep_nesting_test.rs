@@ -69,3 +69,38 @@ fn code_nested_just_inside_the_limit_is_formatted() {
             .unwrap_or_else(|e| panic!("{name}: {e}"));
     }
 }
+
+/// `--dump-tree` of `source` read as the file `name`: its exit status and
+/// how many lines it printed.
+fn dump_tree(name: &str, source: &str) -> (Option<i32>, usize) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_moldy"))
+        .args(["--dump-tree", "--stdin-filename", name, "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("moldy starts");
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(source.as_bytes())
+        .expect("source is written");
+    let output = child.wait_with_output().expect("moldy finishes");
+    let lines = String::from_utf8_lossy(&output.stdout).lines().count();
+    (output.status.code(), lines)
+}
+
+#[test]
+fn the_tree_dump_declines_what_the_formatters_decline() {
+    // Far past the limit, where a recursive walk ran out of stack.
+    let source = format!("int x = {}1{};\n", "(".repeat(50_000), ")".repeat(50_000));
+    assert_eq!(dump_tree("deep.c", &source), (Some(3), 0));
+    for (name, source) in shapes(1950) {
+        let (status, lines) = dump_tree(name, &source);
+        assert_eq!(status, Some(0), "{name}");
+        assert!(lines > 1950, "{name}: {lines} lines");
+    }
+}

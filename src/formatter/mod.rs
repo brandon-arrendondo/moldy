@@ -277,8 +277,12 @@ fn syntax_error(language: &str, root: tree_sitter::Node) -> MoldyError {
 }
 
 /// Print the tree-sitter CST to stdout (debug aid, analogous to funky's
-/// --dump-tokens).
+/// --dump-tokens). A tree the C, C++, Rust and Python formatters would
+/// decline as too deep is declined here too, with the same
+/// `MoldyError::TooDeep`; the walk is a loop, so no depth runs out of
+/// stack.
 pub fn dump_tree(path: &Path, source: &str) -> Result<(), MoldyError> {
+    use std::io::Write;
     let ts_lang = lang_parsing_substrate::language_for_header_content(path, source.as_bytes())
         .ok_or_else(|| MoldyError::UnsupportedLanguage(path.display().to_string()))?;
 
@@ -291,30 +295,74 @@ pub fn dump_tree(path: &Path, source: &str) -> Result<(), MoldyError> {
         .parse(source, None)
         .ok_or_else(|| MoldyError::Parse("tree-sitter returned no tree".into()))?;
 
-    print_node(tree.root_node(), source, 0);
-    Ok(())
+    tree_depth(
+        language_name(path, source),
+        tree.root_node(),
+        MAX_CODE_TREE_DEPTH,
+    )?;
+    let stdout_error = |source| MoldyError::Io {
+        path: "standard output".to_string(),
+        source,
+    };
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    write_tree(&mut out, tree.root_node(), source).map_err(stdout_error)?;
+    out.flush().map_err(stdout_error)
 }
 
-fn print_node(node: tree_sitter::Node<'_>, source: &str, depth: usize) {
-    let indent = "  ".repeat(depth);
-    let named = if node.is_named() { "" } else { "*" };
-    let leaf = if node.child_count() == 0 {
-        format!(" {:?}", &source[node.start_byte()..node.end_byte()])
-    } else {
-        String::new()
-    };
-    println!(
-        "{}{}{}  [{}-{}]{}",
-        indent,
-        named,
-        node.kind(),
-        node.start_byte(),
-        node.end_byte(),
-        leaf
-    );
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        print_node(child, source, depth + 1);
+/// The name of the language `path` is read as, for messages.
+fn language_name(path: &Path, source: &str) -> &'static str {
+    let key = lang_parsing_substrate::language_info_for_file(path).map_or("", |info| info.key);
+    match key {
+        "c" if header_is_cpp(path, source) => "C++",
+        "c" => "C",
+        "cpp" => "C++",
+        "rust" => "Rust",
+        "python" => "Python",
+        "json" => "JSON",
+        "yaml" => "YAML",
+        "markdown" => "Markdown",
+        "cmake" => "CMake",
+        "bash" => "Bash",
+        _ => "The file",
+    }
+}
+
+/// Writes one line per node of `root`, indented two spaces a level.
+fn write_tree(
+    out: &mut impl std::io::Write,
+    root: tree_sitter::Node<'_>,
+    source: &str,
+) -> std::io::Result<()> {
+    let mut cursor = root.walk();
+    let mut depth = 0;
+    loop {
+        let node = cursor.node();
+        let named = if node.is_named() { "" } else { "*" };
+        let leaf = if node.child_count() == 0 {
+            format!(" {:?}", &source[node.start_byte()..node.end_byte()])
+        } else {
+            String::new()
+        };
+        writeln!(
+            out,
+            "{}{}{}  [{}-{}]{}",
+            "  ".repeat(depth),
+            named,
+            node.kind(),
+            node.start_byte(),
+            node.end_byte(),
+            leaf
+        )?;
+        if cursor.goto_first_child() {
+            depth += 1;
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return Ok(());
+            }
+            depth -= 1;
+        }
     }
 }
 

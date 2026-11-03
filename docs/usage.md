@@ -107,7 +107,7 @@ A run that selects no files is incomplete, because a check of nothing does not e
 
 `mode` is `check`, `in-place` or `stdout`, and `complete` is `false` exactly when the run exits 3. In stdout mode, `changed` means the formatted output differs from the file. `results` is sorted by file, and `reason` appears only for a declined or failed file.
 
-`--dump-tree` takes precedence over formatting inside the file loop, including when paired with `--check` or `--in-place`.
+`--dump-tree` takes precedence over formatting inside the file loop, including when paired with `--check` or `--in-place`. A file nested more than 2,000 levels of syntax tree deep, which the C, C++, Rust and Python formatters decline, is not dumped: the run stops with the formatters' `nested too deeply` error and exits 3.
 
 ## Formatting limits
 

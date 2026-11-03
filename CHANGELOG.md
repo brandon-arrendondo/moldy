@@ -16,6 +16,11 @@ What changed for users of Moldy, newest release first. See
   declaration's `=` (`int b = /* c */` with the value on the next line)
   ends it in the output too. Files declined for these are now
   formatted.
+- `--dump-tree` aborted with a stack overflow on a file nested tens of
+  thousands of levels deep. It now walks the tree without recursion and
+  declines a file nested more than 2,000 levels, as the C, C++, Rust
+  and Python formatters do,
+  with the same error and exit 3.
 
 ## [0.7.3] - 2026-11-03
 
