@@ -19,7 +19,7 @@ name = "moldy"
 path = "src/main.rs"
 
 [dependencies]
-lang-parsing-substrate = { version = "0.14.0", default-features = false, features = ["lang-c", "lang-cpp", "lang-rust", "lang-python", "lang-json", "lang-yaml", "lang-markdown", "lang-cmake", "lang-bash", "lang-rst"] }
+lang-parsing-substrate = { version = "0.15.0", default-features = false, features = ["lang-c", "lang-cpp", "lang-rust", "lang-python", "lang-json", "lang-yaml", "lang-markdown", "lang-cmake", "lang-bash", "lang-rst"] }
 tree-sitter            = "0.25"
 clap                   = { version = "4", features = ["derive"] }
 serde                  = { version = "1", features = ["derive"] }
@@ -33,11 +33,6 @@ pulldown-cmark         = { version = "0.13.4", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
-
-# Branch-only: reStructuredText needs the substrate's unreleased `lang-rst`
-# feature. Replace it with a released version before this branch merges.
-[patch.crates-io]
-lang-parsing-substrate = { path = "../lang_parsing_substrate-rst-support-0.14" }
 
 [profile.release]
 opt-level     = 3

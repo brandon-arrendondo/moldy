@@ -2,7 +2,7 @@
 
 Moldy owns formatting policy. `lang-parsing-substrate` owns the language registry, tree-sitter grammar access, extension and file-name predicates, Markdown container prefixes, and the `PathIgnore` glob matcher used for file selection. Every grammar, including the Markdown inline grammar, comes through substrate features; Moldy depends directly only on the `tree-sitter` runtime crate, which Cargo shares with the substrate.
 
-Moldy uses `lang-parsing-substrate` 0.14.0. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, `lang-python`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-cmake`, `lang-bash`, and `lang-rst`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
+Moldy uses `lang-parsing-substrate` 0.15.0. `default-features = false` keeps the compiled registry limited to `lang-c`, `lang-cpp`, `lang-rust`, `lang-python`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-cmake`, `lang-bash`, and `lang-rst`. Substrate defaults otherwise enable languages Moldy cannot format, causing recursive discovery to select unsupported files. Adding a grammar feature must accompany a formatter and dispatch arm.
 
 ## Processing pipeline
 
@@ -24,7 +24,7 @@ Tree-sitter nodes retain byte offsets into the original source. Text is sliced u
 
 Substrate dead-code blanking, call extraction, metrics, control-flow graphs, and fingerprints are analysis facilities and are not part of Moldy's formatting path. Blanking source before emission would discard text a formatter must preserve, including preprocessor-controlled code. Parser trees and source slices must refer to the same text.
 
-`src/toolchain.rs` models the shared ignore subset of `toolchain.toml` and discovers it from the working directory. Substrate 0.14.0 exports the glob matcher but does not export a shared configuration loader, so discovery and TOML deserialization remain in Moldy. This module does not locate or invoke external formatters.
+`src/toolchain.rs` models the shared ignore subset of `toolchain.toml` and discovers it from the working directory. Substrate 0.15.0 exports the glob matcher but does not export a shared configuration loader, so discovery and TOML deserialization remain in Moldy. This module does not locate or invoke external formatters.
 
 ## Public library
 

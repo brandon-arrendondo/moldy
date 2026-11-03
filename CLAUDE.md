@@ -138,7 +138,7 @@ gersemi's signature table is MPL-2.0; do not copy it. Extend
 
 ## Substrate
 
-`lang-parsing-substrate` 0.14.0 owns registry metadata, grammar access, and glob
+`lang-parsing-substrate` 0.15.0 owns registry metadata, grammar access, and glob
 matching. Disable default features and enable only the ten implemented
 formatters. `language_info_for_file` drives dispatch; `language_for_key`
 provides grammars, including `markdown_inline`; `language_for_file` serves tree
