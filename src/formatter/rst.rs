@@ -2133,27 +2133,95 @@ impl<'a> Rst<'a> {
         }
     }
 
+    /// A directive's shape, read from the tree's byte ranges and not from
+    /// the code that emits it (`inner_document`, `directive_as_written`):
+    /// a reading error in that code then shows up in the output's shape
+    /// alone and fails the check, instead of appearing in both shapes.
     fn shape_directive(&self, node: Node, prefix: &str, out: &mut String) {
         let name = child_of_kind(node, "type").map_or("", |t| self.text(t));
         out.push_str(&format!("X {name}"));
-        if let Some(args_in_body) = self.rst_body(node, prefix) {
-            if let Some((inner, _)) = self.inner_document(node, args_in_body) {
-                if !args_in_body {
-                    out.push_str(&format!(" {:?}", self.directive_args(node)));
-                }
-                let (options, _) = self.directive_options(node).unwrap_or_default();
-                out.push_str(&format!(" {options:?}"));
-                match document_shape(&inner, self.cfg, self.depth + 1) {
-                    Ok((shape, _)) => out.push_str(&shape),
-                    Err(_) => out.push_str(&format!(
-                        "{:?}",
-                        dedent(inner.lines().map(String::from).collect())
-                    )),
-                }
-                return;
+        let body = child_of_kind(node, "body");
+        let part = |kind: &str| body.and_then(|b| child_of_kind(b, kind));
+        let (args, options, content) = (part("arguments"), part("options"), part("content"));
+        let fields: Vec<String> = options.map_or_else(Vec::new, |o| {
+            children(o)
+                .into_iter()
+                .filter(|c| c.kind() == "field")
+                .map(|f| self.words(f.start_byte(), f.end_byte(), f).join(" "))
+                .collect()
+        });
+        out.push_str(&format!(" {fields:?}"));
+        let Some(body) = body else {
+            return;
+        };
+        match self.rst_body(node, prefix) {
+            // An admonition's arguments are the first lines of its body, as
+            // docutils reads them: the body is everything from the
+            // arguments on, taken once, as one slice of the source.
+            Some(true) if options.is_none() => {
+                let from = args
+                    .or(content)
+                    .map_or(body.start_byte(), |n| n.start_byte());
+                self.shape_document(self.source_block(from, body.end_byte()), out);
+            }
+            // A titled directive's arguments are its title.
+            Some(false) => {
+                out.push_str(&format!(" {:?}", self.node_words(args)));
+                let block = content.map(|c| self.source_block(c.start_byte(), c.end_byte()));
+                self.shape_document(block.unwrap_or_default(), out);
+            }
+            // Other directives' arguments are kept line by line (a Sphinx
+            // signature per line), and their content as written.
+            _ => {
+                let arg_lines: Vec<String> = args.map_or_else(Vec::new, |a| {
+                    self.text(a)
+                        .lines()
+                        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .collect()
+                });
+                out.push_str(&format!(" {arg_lines:?}"));
+                let block = content.map(|c| self.source_block(c.start_byte(), c.end_byte()));
+                out.push_str(&format!("{:?}", block.unwrap_or_default()));
             }
         }
-        out.push_str(&format!("{:?}", self.directive_as_written(node, prefix)));
+    }
+
+    /// The words of `node`, whitespace normalized; empty for no node.
+    fn node_words(&self, node: Option<Node>) -> String {
+        node.map_or_else(String::new, |n| {
+            self.words(n.start_byte(), n.end_byte(), n).join(" ")
+        })
+    }
+
+    /// The source from `start` to `end` as lines without their common
+    /// indentation. A first line that starts after other text on its row
+    /// (arguments after `::`) is kept as it is, without its indent counting.
+    fn source_block(&self, start: usize, end: usize) -> Vec<String> {
+        let line_start = self.src[..start].rfind('\n').map_or(0, |i| i + 1);
+        let lead_alone = self.src[line_start..start].trim().is_empty();
+        let text = &self.src[if lead_alone { line_start } else { start }..end];
+        let mut lines: Vec<String> = text.lines().map(String::from).collect();
+        if lead_alone || lines.is_empty() {
+            return dedent(lines);
+        }
+        let first = lines.remove(0).trim().to_string();
+        // `dedent` drops leading blank lines; between the first line and
+        // the rest they separate paragraphs, so they are kept.
+        let blank = lines.iter().take_while(|l| l.trim().is_empty()).count();
+        let mut out = vec![first];
+        out.extend(std::iter::repeat_n(String::new(), blank));
+        out.extend(dedent(lines));
+        out
+    }
+
+    /// The shape of `lines` read as a nested document, or the lines
+    /// themselves when they do not parse.
+    fn shape_document(&self, lines: Vec<String>, out: &mut String) {
+        let inner = lines.join("\n") + "\n";
+        match document_shape(&inner, self.cfg, self.depth + 1) {
+            Ok((shape, _)) => out.push_str(&shape),
+            Err(_) => out.push_str(&format!("{lines:?}")),
+        }
     }
 }
 

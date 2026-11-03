@@ -11,3 +11,7 @@
    continued on the next.
 
    Body text.
+
+.. tip:: A paragraph on the header line.
+
+   A second paragraph after a blank line.
