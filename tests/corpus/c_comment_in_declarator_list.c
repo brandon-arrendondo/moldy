@@ -1,0 +1,41 @@
+/* A comment that ends its line inside a declarator list keeps the code
+   after it on the next line: after a line comment that code would be
+   part of the comment. */
+int g = 1, // first
+    h;
+static int *p, // pointer
+    q;
+int x // before the comma
+    , y;
+int a = 1, /* block */
+    b;
+int c = 1, /* inline */ d;
+int e = // before the value
+    1;
+int i = /* before the value */
+    2;
+int // before the name
+    j;
+/* A `//` inside a string is not a comment. */
+static const char *slashes[] = { "//", "a//b", "//" };
+static const char *url = "http://x", // after the string
+    *path = "//";
+
+struct pair {
+    int left, // the left one
+        right;
+    int last // before the semicolon
+    ;
+};
+
+void f(void)
+{
+    int m = 1, // m
+        n = 2;
+    unsigned u = 0u, /* u */
+        w = 1u;
+    (void)m;
+    (void)n;
+    (void)u;
+    (void)w;
+}

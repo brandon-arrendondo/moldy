@@ -5,6 +5,18 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C and C++: a line comment inside a declaration was followed by the
+  code after it on its line, which made that code part of the comment:
+  `int g = 1, // c` with `h;` on the next line gave `int g = 1, // c
+  h;`, and the check declined the file. Code after a line comment now
+  starts a new line, indented one level past the comment's line, and a
+  comment that ends its line in a declarator list or after a
+  declaration's `=` (`int b = /* c */` with the value on the next line)
+  ends it in the output too. Files declined for these are now
+  formatted.
+
 ## [0.7.3] - 2026-11-03
 
 ### Fixed

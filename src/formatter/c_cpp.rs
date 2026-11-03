@@ -94,6 +94,9 @@ struct Fmt<'a> {
     // Set by a body that holds only block comments written on one line
     // with its braces: its `}` follows them on that line.
     close_inline: bool,
+    // Where a line comment that ends the output line ends: whatever is
+    // written next goes on a line of its own (see `raw`).
+    line_comment_end: Option<usize>,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -131,6 +134,43 @@ impl<'a> OutputOps<'a> for Fmt<'a> {
         }
         self.out.push('\n');
         self.at_bol = true;
+        self.line_comment_end = None;
+    }
+
+    /// Writes `s`. Nothing is written after a line comment on its line,
+    /// where it would become part of the comment: code that follows one
+    /// (`int g = 1, // c` with `h;` on the next line) starts a new line,
+    /// indented one level past the comment's line, or level with it for a
+    /// `;` or a closing bracket.
+    fn raw(&mut self, s: &str) {
+        if s.is_empty() {
+            return;
+        }
+        if let Some(end) = self.line_comment_end {
+            if !s.starts_with(['\n', '\r']) && !s.trim().is_empty() {
+                self.break_after_line_comment(end, s);
+            }
+        }
+        self.out.push_str(s);
+        self.at_bol = s.ends_with('\n');
+        if s.contains('\n') {
+            self.line_comment_end = None;
+        }
+        if s.trim_start().starts_with("//") && !s.contains('\n') {
+            let at = self.out.len() - s.trim_start().len();
+            let line_start = self.out[..at].rfind('\n').map_or(0, |nl| nl + 1);
+            if ends_in_code(&self.out[line_start..at]) {
+                self.line_comment_end = Some(self.out.len());
+            }
+        }
+    }
+
+    fn render_scratch<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
+        let open = self.line_comment_end.take();
+        let saved = std::mem::take(&mut self.out);
+        f(self);
+        self.line_comment_end = open;
+        std::mem::replace(&mut self.out, saved)
     }
 }
 
@@ -152,10 +192,27 @@ impl<'a> Fmt<'a> {
             body_comment: None,
             comment_space: None,
             close_inline: false,
+            line_comment_end: None,
         }
     }
 
     // ── Output primitives ─────────────────────────────────────────────────────
+
+    /// Ends the line a line comment ends at `end`, before `next` is
+    /// written, dropping the spaces written after it.
+    fn break_after_line_comment(&mut self, end: usize, next: &str) {
+        if self.out.len() >= end && self.out[end..].trim().is_empty() {
+            self.out.truncate(end);
+        }
+        let line = &self.out[self.out.rfind('\n').map_or(0, |at| at + 1)..];
+        let indent = line[..line.len() - line.trim_start().len()].to_string();
+        self.nl();
+        self.raw(&indent);
+        if !next.trim_start().starts_with([';', ')', ']', '}']) {
+            let unit = self.indent_str_at(1);
+            self.raw(&unit);
+        }
+    }
 
     fn emit_indent_at(&mut self, d: u32) {
         let s = self.indent_str_at(d);
@@ -435,6 +492,15 @@ impl<'a> Fmt<'a> {
             '\t' => (col / tab + 1) * tab,
             _ => col + 1,
         })
+    }
+
+    /// Whether `node` is a comment that ends its line in the source.
+    fn comment_ends_line(&self, node: Node) -> bool {
+        node.kind() == "comment"
+            && self.src[node.end_byte()..]
+                .split('\n')
+                .next()
+                .is_some_and(|rest| rest.trim().is_empty())
     }
 
     /// Whether `comment` follows code on its line in the source, which it
@@ -2270,6 +2336,19 @@ impl<'a> Fmt<'a> {
         for &child in &children {
             let k = child.kind();
             match k {
+                _ if prev.is_some_and(|p| self.comment_ends_line(p)) => {
+                    // A comment that ends its line in the source ends it
+                    // here too, where the code after it would otherwise
+                    // follow it (and a line comment would swallow it).
+                    self.break_after_line_comment(self.out.len(), self.node_text(child));
+                    if k == "init_declarator" {
+                        self.emit_init_declarator(child);
+                    } else {
+                        let mut leaves = vec![];
+                        collect_leaves(child, &mut leaves);
+                        self.emit_leaves(&leaves);
+                    }
+                }
                 "struct_specifier" | "union_specifier" => {
                     if prev.is_some() && !self.at_bol {
                         self.space();
@@ -2380,7 +2459,10 @@ impl<'a> Fmt<'a> {
                 // the next line can align to it (matching funky's assign_col).
                 self.assign_col_for_brace = Some(self.current_col() + 1);
             } else {
-                if prev.is_some() && !self.at_bol {
+                if prev.is_some_and(|p| self.comment_ends_line(p)) {
+                    // `int b = /* c */` with the value on the next line.
+                    self.break_after_line_comment(self.out.len(), self.node_text(child));
+                } else if prev.is_some() && !self.at_bol {
                     // `Type name(args);` direct-initialization: the `(` is
                     // call-like, so it follows space_before_call_paren rather
                     // than always getting a space.
@@ -2490,6 +2572,7 @@ impl<'a> Fmt<'a> {
         let saved_initializer = self.in_initializer;
         // An offset into the real output means nothing in the scratch one.
         let saved_comment_space = self.comment_space.take();
+        let saved_line_comment = self.line_comment_end.take();
         self.at_bol = false;
         self.emit_decl_children(node);
         let rendered = std::mem::replace(&mut self.out, saved_out);
@@ -2497,6 +2580,7 @@ impl<'a> Fmt<'a> {
         self.directive_end = saved_directive_end;
         self.in_initializer = saved_initializer;
         self.comment_space = saved_comment_space;
+        self.line_comment_end = saved_line_comment;
         // Return chars on the last line (handles unlikely multi-line case).
         rendered.len() - rendered.rfind('\n').map(|p| p + 1).unwrap_or(0)
     }
@@ -4224,6 +4308,38 @@ fn trailing_comment_col(line: &str, in_block: &mut bool) -> Option<usize> {
     found
 }
 
+/// Whether the end of `line`, a line's start, is in code: not inside a
+/// string or character literal or a block comment begun on it. A `//`
+/// written there starts a comment; in a literal (`"//"`, the text of a
+/// string the emitter writes in pieces) it does not.
+fn ends_in_code(line: &str) -> bool {
+    let mut chars = line.chars();
+    let mut quote = None;
+    let mut in_block = false;
+    while let Some(c) = chars.next() {
+        match (quote, in_block, c) {
+            (Some(_), _, '\\') => {
+                chars.next();
+            }
+            (Some(q), _, c) if c == q => quote = None,
+            (Some(_), _, _) => {}
+            (None, true, '*') if chars.clone().next() == Some('/') => {
+                chars.next();
+                in_block = false;
+            }
+            (None, true, _) => {}
+            (None, false, '"' | '\'') => quote = Some(c),
+            (None, false, '/') if chars.clone().next() == Some('*') => {
+                chars.next();
+                in_block = true;
+            }
+            (None, false, '/') if chars.clone().next() == Some('/') => return false,
+            _ => {}
+        }
+    }
+    quote.is_none() && !in_block
+}
+
 fn round_up_to_multiple(n: usize, m: usize) -> usize {
     if m == 0 {
         return n;
@@ -4494,5 +4610,15 @@ mod tests {
         assert_eq!(fmt.out, before);
         fmt.nl();
         assert_eq!(fmt.out, "x;  /* note */\n");
+    }
+
+    #[test]
+    fn a_line_comment_is_found_only_in_code() {
+        for line in ["int g = 1, ", "f(a, ", "x = '\"'; ", "a /* b */ ", ""] {
+            assert!(ends_in_code(line), "{line}");
+        }
+        for line in ["s = \"", "s = \"a\\\"", "c = '", "a /* b ", "a // b "] {
+            assert!(!ends_in_code(line), "{line}");
+        }
     }
 }
