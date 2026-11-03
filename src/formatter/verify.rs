@@ -118,7 +118,7 @@ pub(super) fn check_tokens(
         )));
     }
     if layout == Layout::Directives {
-        if let Some(row) = relexed_differently(source, output, language_key == "cpp", braces) {
+        if let Some(row) = relexed_differently(source, output, braces) {
             return Err(unverified(row));
         }
     }
@@ -129,11 +129,20 @@ pub(super) fn check_tokens(
 /// with the input's while a compiler's does not (`:::` is `:` `::` to
 /// tree-sitter-cpp and `::` `:` to a compiler; an unterminated `/*` is
 /// not a comment to either grammar), the row of the first input token
-/// that the output, read as a compiler reads it, does not have, or
+/// that the output, read as a C or a C++ compiler reads it, does not have, or
 /// `None` if every token matches. With `braces`, braces are not
 /// compared: the tree-sitter check has already held each added brace to
 /// a body, and no punctuator holds a brace, so none can join another.
-fn relexed_differently(source: &str, output: &str, cpp: bool, braces: bool) -> Option<usize> {
+fn relexed_differently(source: &str, output: &str, braces: bool) -> Option<usize> {
+    // A header is often compiled as C or as C++, so both must agree.
+    [false, true]
+        .into_iter()
+        .find_map(|cpp| first_difference(source, output, cpp, braces))
+}
+
+/// The input row of the first token `source` and `output` differ in, read
+/// as C or (with `cpp`) as C++.
+fn first_difference(source: &str, output: &str, cpp: bool, braces: bool) -> Option<usize> {
     let read = |text: &str| {
         let mut t = c_lex::tokens(text, cpp);
         if braces {
@@ -1050,6 +1059,27 @@ mod tests {
             "auto s = operator\"\" _t(\"a\", 1);\n",
             "auto s = operator\"\"_t(\"a\", 1);\n"
         ));
+        // GCC reads raw strings in C in its GNU modes: `R"(y)"` is one.
+        assert!(!passes(
+            "c",
+            &Edits::NONE,
+            "#define R \"M:\"\nconst char *s = \"a\" R \"(y)\";\n",
+            "#define R \"M:\"\nconst char *s = \"a\"R\"(y)\";\n"
+        ));
+        // A C header is often compiled as C++, where `"a"X` is one literal
+        // with a suffix and `"a"L` too.
+        for (source, output) in [
+            (
+                "const char *a = \"a\" X \"b\";\n",
+                "const char *a = \"a\"X\"b\";\n",
+            ),
+            (
+                "const char *a = \"a\" L \"b\";\n",
+                "const char *a = \"a\"L \"b\";\n",
+            ),
+        ] {
+            assert!(!passes("c", &Edits::NONE, source, output), "{output}");
+        }
     }
 
     #[test]

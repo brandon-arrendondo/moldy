@@ -15,16 +15,19 @@ What changed for users of Moldy, newest release first. See
   keeps its space.
 - C and C++: two tokens written apart could be written together, where
   a compiler reads them as others: `a / *p` became `a /*p`, which opens
-  a comment, and in C++ `"name[" NAME "]"` became `"name["NAME`, a
-  string with a literal suffix, so the macro `NAME` was not expanded.
-  Two tokens are now never written together where a compiler would read
-  them as others. Files Moldy declined for such a join are now
-  formatted: `- -a`, `operator new`, `p __attribute__((unused))`,
-  `__asm__ __volatile__`, `#if defined(A)` inside an `enum`, and C++20
-  `concept C = ...`.
-- C and C++: the check every run makes now reads the output as a
-  compiler does, besides with tree-sitter, so a file whose tokens a
-  compiler would read differently is declined (exit 3) instead of
+  a comment; in C++, and in a C header compiled as C++, `"name[" NAME
+  "]"` became `"name["NAME`, a string with a literal suffix, so the
+  macro `NAME` was not expanded; and in C `"a" R "(y)"` became
+  `"a"R"(y)"`, which GCC's default GNU mode reads as a raw string. Two
+  tokens are now never written together where ISO C, C++11 or their GNU
+  dialects would read them as others, and a C header is read as both C
+  and C++. Files Moldy declined for such a join are now formatted:
+  `- -a`, `operator new`, `p __attribute__((unused))`, `__asm__
+  __volatile__`, `#if defined(A)` inside an `enum`, and C++20 `concept
+  C = ...`.
+- C and C++: the check every run makes now also reads the output as a C
+  and a C++ compiler do, besides with tree-sitter, so a file whose
+  tokens either would read differently is declined (exit 3) instead of
   written.
 
 ### Changed
@@ -34,6 +37,8 @@ What changed for users of Moldy, newest release first. See
   `throw ::X`, `sizeof ::X`, `public ::B`, `<class T = ::B>`. These were
   written with no space before the `::` (`a =::f()`). After `(`, `!` and
   at the start of a line nothing changes.
+- C++: a space between `<` and `::` is kept (`std::vector< ::T>`), as
+  C++03 needs, where `<:` is a digraph for `[`. It was removed.
 
 ## [0.7.2] - 2026-11-01
 

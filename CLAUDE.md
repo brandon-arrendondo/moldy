@@ -56,7 +56,7 @@ parses every output again and returns `MoldyError::Unverified` unless its
 tokens, comments and line structure match the input's, apart from the
 edits a rule makes (braces from `add_braces_*`; Rust and Python trailing
 commas that change nothing; Python line continuations). For C and C++ it
-also re-reads both texts with `c_lex.rs`, as a compiler reads them, since
+also re-reads both texts with `c_lex.rs`, as a C and a C++ compiler read them, since
 tree-sitter can read joined tokens (`:::`, an unterminated `/*`) as the
 input's; the emitter never writes two tokens together that `c_lex::joins`. Do not widen those
 edits to make a check pass; keep it passing on real code, not only the

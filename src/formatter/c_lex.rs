@@ -62,8 +62,8 @@ pub(super) fn tokens(text: &str, cpp: bool) -> Vec<LexToken> {
             }
             let word: String = chars[start..i].iter().map(|&(c, _)| c).collect();
             match at(i) {
-                Some(q @ ('"' | '\'')) if is_literal_prefix(&word, q, cpp) => {
-                    if cpp && word.ends_with('R') && q == '"' {
+                Some(q @ ('"' | '\'')) if is_literal_prefix(&word, q) => {
+                    if word.ends_with('R') {
                         i = raw_string_end(&chars, i);
                     } else {
                         i = quoted_end(&chars, i);
@@ -106,13 +106,18 @@ pub(super) fn tokens(text: &str, cpp: bool) -> Vec<LexToken> {
 }
 
 /// Whether writing `left` and then `right` with nothing between them
-/// reads as other tokens than `left`'s followed by `right`'s: `+` `+` is
-/// `++`, `/` `*` opens a comment, `:` `::` is `::` `:`, `int` `x` is
-/// `intx`.
-pub(super) fn joins(left: &str, right: &str, cpp: bool) -> bool {
-    if left.is_empty() || right.is_empty() {
-        return false;
-    }
+/// reads as other tokens than `left`'s followed by `right`'s, as C or as
+/// C++: `+` `+` is `++`, `/` `*` opens a comment, `:` `::` is `::` `:`,
+/// `int` `x` is `intx`, and in C++ `"a"` `X` is a literal with a suffix.
+/// Both dialects are asked because a header is often compiled as either,
+/// and a space between two tokens never hurts in either.
+pub(super) fn joins(left: &str, right: &str) -> bool {
+    !left.is_empty()
+        && !right.is_empty()
+        && (joins_in(left, right, false) || joins_in(left, right, true))
+}
+
+fn joins_in(left: &str, right: &str, cpp: bool) -> bool {
     let apart = tokens(left, cpp)
         .into_iter()
         .chain(tokens(right, cpp))
@@ -133,9 +138,8 @@ fn splice(text: &str) -> Vec<(char, usize)> {
     while let Some(c) = chars.next() {
         if c == '\\' {
             let mut ahead = chars.clone();
-            if ahead.next_if_eq(&'\r').is_some() {
-                // Only a CRLF after the `\` makes a splice.
-            }
+            // An LF or a CRLF after the `\` makes a splice.
+            let _ = ahead.next_if_eq(&'\r');
             if ahead.next_if_eq(&'\n').is_some() {
                 chars = ahead;
                 row += 1;
@@ -151,7 +155,7 @@ fn splice(text: &str) -> Vec<(char, usize)> {
 }
 
 fn is_identifier_start(c: char) -> bool {
-    c.is_alphabetic() || c == '_' || c == '$' || !c.is_ascii()
+    c.is_ascii_alphabetic() || c == '_' || c == '$' || !c.is_ascii()
 }
 
 fn is_identifier_char(c: char) -> bool {
@@ -159,11 +163,12 @@ fn is_identifier_char(c: char) -> bool {
 }
 
 /// Whether `word` written just before the quote `q` is that literal's
-/// encoding prefix (or, in C++, a raw string's).
-fn is_literal_prefix(word: &str, q: char, cpp: bool) -> bool {
+/// encoding prefix, or a raw string's: C++11 has raw strings, and GCC
+/// reads them in C too in its GNU modes (its default).
+fn is_literal_prefix(word: &str, q: char) -> bool {
     match word {
         "L" | "u" | "U" | "u8" => true,
-        "R" | "LR" | "uR" | "UR" | "u8R" => cpp && q == '"',
+        "R" | "LR" | "uR" | "UR" | "u8R" => q == '"',
         _ => false,
     }
 }
@@ -230,7 +235,8 @@ fn punctuator_len(chars: &[(char, usize)], cpp: bool) -> Option<usize> {
         p.chars().count() <= chars.len() && p.chars().zip(chars).all(|(a, &(b, _))| a == b)
     };
     // C++11: `<::` is `<` `::` unless a `:` or `>` follows, so that
-    // `std::vector<::T>` names `::T`.
+    // `std::vector<::T>` names `::T`. C++03 and C read the `<:` digraph,
+    // so `joins` keeps `< ::` apart.
     if cpp && starts("<::") && !matches!(chars.get(3).map(|&(c, _)| c), Some(':' | '>')) {
         return Some(1);
     }
@@ -298,7 +304,9 @@ mod tests {
             [r#"u8"a""#, "L'b'", r#"U"c""#]
         );
         assert_eq!(texts(r#"R"x(a)" b)x" c"#, true), [r#"R"x(a)" b)x""#, "c"]);
-        assert_eq!(texts(r#"R"(a)""#, false), ["R", r#""(a)""#]);
+        assert_eq!(texts(r#"R"(a)" b"#, false), [r#"R"(a)""#, "b"]);
+        assert_eq!(texts(r#"u8R"x()")x""#, false), [r#"u8R"x()")x""#]);
+        assert_eq!(texts(r#"R "(a)""#, false), ["R", r#""(a)""#]);
         assert_eq!(texts(r#""a"_s"#, true), [r#""a"_s"#]);
         assert_eq!(texts("don't\nx", false), ["don", "'t", "x"]);
     }
@@ -331,8 +339,14 @@ mod tests {
             (".", "5"),
             ("<", ":"),
             ("%", ":"),
+            ("<", "::"),
+            ("\"a\"", "X"),
+            ("\"a\"", "L"),
+            ("L", "\"b\""),
+            ("R", "\"(y)\""),
+            ("-", ">*"),
         ] {
-            assert!(joins(left, right, true), "{left} {right}");
+            assert!(joins(left, right), "{left} {right}");
         }
         for (left, right) in [
             ("?", "x"),
@@ -343,10 +357,10 @@ mod tests {
             ("!", "::"),
             ("return", "("),
             ("a", ")"),
-            ("<", "::"),
             ("*", "/"),
+            ("x", "\"b\""),
         ] {
-            assert!(!joins(left, right, true), "{left} {right}");
+            assert!(!joins(left, right), "{left} {right}");
         }
     }
 }

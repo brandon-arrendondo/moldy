@@ -31,7 +31,6 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
 
     // Continue even if tree has errors; unknown nodes emit their source text.
     let mut fmt = Fmt::new(source, config);
-    fmt.cpp = lang_key == "cpp";
     fmt.emit_translation_unit(tree.root_node());
     let output = fmt.finish();
 
@@ -95,9 +94,6 @@ struct Fmt<'a> {
     // Set by a body that holds only block comments written on one line
     // with its braces: its `}` follows them on that line.
     close_inline: bool,
-    // Whether the source is C++, whose tokens differ a little from C's
-    // when two are written together (see `c_lex`).
-    cpp: bool,
 }
 
 impl<'a> OutputOps<'a> for Fmt<'a> {
@@ -156,7 +152,6 @@ impl<'a> Fmt<'a> {
             body_comment: None,
             comment_space: None,
             close_inline: false,
-            cpp: false,
         }
     }
 
@@ -3341,7 +3336,7 @@ impl<'a> Fmt<'a> {
         left != right
             && left.kind() != "comment"
             && right.kind() != "comment"
-            && c_lex::joins(self.node_text(left), self.node_text(right), self.cpp)
+            && c_lex::joins(self.node_text(left), self.node_text(right))
     }
 
     /// The space before a `::`. One that starts a name (`::f`, `::delete`)
