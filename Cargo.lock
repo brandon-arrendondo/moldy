@@ -644,7 +644,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-rst-next"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f48be20e16d675222e9296161d1cb64d55ef6c2590c89ac255b4d53dc91367c6"
 dependencies = [
  "cc",
  "tree-sitter-language",

@@ -7,8 +7,8 @@
 .. c:function:: int f(int a, \
                       int b)
 
-   The grammar ends the directive at its arguments; its body stays as
-   written.
+   The argument lines of a directive Moldy does not know stay as
+   written; its body is reindented with the directive.
 
 ..
    function:: commented_out()

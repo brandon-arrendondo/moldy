@@ -35,11 +35,9 @@ pulldown-cmark         = { version = "0.13.4", default-features = false }
 tempfile = "3"
 
 # Branch-only: reStructuredText needs the substrate's unreleased `lang-rst`
-# feature and the unreleased tree-sitter-rst-next grammar. Replace both with
-# released versions before this branch merges.
+# feature. Replace it with a released version before this branch merges.
 [patch.crates-io]
 lang-parsing-substrate = { path = "../lang_parsing_substrate-rst-support-0.14" }
-tree-sitter-rst-next   = { path = "../tree-sitter-rst-moldy" }
 
 [profile.release]
 opt-level     = 3
