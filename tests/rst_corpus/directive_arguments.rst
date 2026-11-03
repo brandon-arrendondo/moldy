@@ -15,3 +15,36 @@
 .. tip:: A paragraph on the header line.
 
    A second paragraph after a blank line.
+
+.. note::
+   :class: x
+
+   This paragraph inside a note with an option is longer than the line width, so it is wrapped onto a second line.
+
+.. note::
+   :class: x
+
+   * item
+   * item two
+
+.. note::
+   :class: x
+
+   Para.
+
+   .. code-block:: c
+
+      int x;
+
+.. admonition:: Title
+   :class: x
+
+   Body of a generic admonition with an option.
+
+.. note::
+   :class: x
+
+.. warning:: Arguments and
+   :class: x
+
+   a body, kept as written.

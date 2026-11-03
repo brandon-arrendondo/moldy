@@ -2157,12 +2157,19 @@ impl<'a> Rst<'a> {
         match self.rst_body(node, prefix) {
             // An admonition's arguments are the first lines of its body, as
             // docutils reads them: the body is everything from the
-            // arguments on, taken once, as one slice of the source.
-            Some(true) if options.is_none() => {
-                let from = args
-                    .or(content)
-                    .map_or(body.start_byte(), |n| n.start_byte());
-                self.shape_document(self.source_block(from, body.end_byte()), out);
+            // arguments on, taken once, as one slice of the source. Its
+            // options come before the body and are compared as fields
+            // above. With both arguments and options it is kept as written,
+            // and compared line by line below.
+            Some(true) if options.is_none() || args.is_none() => {
+                let block = match args.or(content) {
+                    Some(from) => self.source_block(from.start_byte(), body.end_byte()),
+                    None if options.is_none() => {
+                        self.source_block(body.start_byte(), body.end_byte())
+                    }
+                    None => Vec::new(),
+                };
+                self.shape_document(block, out);
             }
             // A titled directive's arguments are its title.
             Some(false) => {
