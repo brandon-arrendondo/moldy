@@ -1,0 +1,16 @@
+// The same in C++, and at the top of a namespace body.
+#pragma once
+;
+#include <vector>
+;
+#define C 2
+;
+namespace ns {
+#define D \
+    3
+;
+#if C
+int y;
+#endif
+;
+}

@@ -503,12 +503,18 @@ impl<'a> Fmt<'a> {
     }
 
     /// Whether `node` follows code on its source line, and the output is
-    /// still on that code's line.
+    /// still on that code's line. The code must end on `node`'s line: a
+    /// preprocessor line's node ends after its newline, at the start of
+    /// the next line.
     fn follows_on_its_line(&self, node: Node) -> bool {
+        let line_start = self.src[..node.start_byte()]
+            .rfind('\n')
+            .map_or(0, |nl| nl + 1);
         !self.at_bol
             && node.prev_sibling().is_some_and(|prev| {
                 prev.kind() != "comment"
-                    && !self.src[prev.end_byte()..node.start_byte()].contains('\n')
+                    && prev.end_byte() > line_start
+                    && !ends_in_empty_body(prev)
             })
     }
 
@@ -3968,6 +3974,20 @@ fn followed_by_semicolon(node: Node) -> bool {
     std::iter::successors(node.next_sibling(), |n| n.next_sibling())
         .find(|n| n.kind() != "comment")
         .is_some_and(|next| next.kind() == ";")
+}
+
+/// Whether `stmt` ends in a body that is an empty statement, as `for
+/// (;;) ;` and `if (a) x(); else ;` do: an empty statement after it is
+/// not joined to that body.
+fn ends_in_empty_body(stmt: Node) -> bool {
+    let mut last = stmt.child(stmt.child_count().saturating_sub(1));
+    while let Some(node) = last {
+        if is_null_stmt(node) {
+            return true;
+        }
+        last = node.child(node.child_count().saturating_sub(1));
+    }
+    false
 }
 
 fn is_null_stmt(node: Node) -> bool {
