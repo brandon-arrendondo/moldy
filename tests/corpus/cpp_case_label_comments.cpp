@@ -1,0 +1,12 @@
+// The same in C++, with a scoped enumerator as the label.
+enum class E { A, B };
+
+int f(E e)
+{
+    switch (e) {
+    case E::A /* first */:
+        return 1;
+    default /* rest */ :
+        return 0;
+    }
+}

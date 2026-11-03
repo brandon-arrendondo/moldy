@@ -5,6 +5,14 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+### Fixed
+
+- C and C++: a comment between a `case` or `default` label and its `:`
+  (`case 1 /* c */:`, `default /* d */ :`) sent the `:` to a line of
+  its own at column 0, and formatting the output again indented it, so
+  the output was never stable. The `:` now stays on the label's line;
+  after a line comment it starts the next line.
+
 ## [0.8.0] - 2026-11-03
 
 ### Fixed

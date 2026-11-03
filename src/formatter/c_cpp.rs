@@ -1805,24 +1805,25 @@ impl<'a> Fmt<'a> {
         let children: Vec<Node> = node.children(&mut cursor).collect();
 
         let mut i = 0;
-        match children.get(i).map(|n| n.kind()) {
-            Some("case") => {
-                self.raw("case");
-                i += 1;
-                if i < children.len() && children[i].kind() != ":" {
-                    self.space();
-                    self.emit_expr_node(children[i]);
-                    i += 1;
-                }
-            }
-            Some("default") => {
-                self.raw("default");
-                i += 1;
-            }
-            _ => {}
+        if let Some(keyword) = children
+            .first()
+            .filter(|n| matches!(n.kind(), "case" | "default"))
+        {
+            self.raw(self.node_text(*keyword));
+            i += 1;
         }
-
-        if i < children.len() && children[i].kind() == ":" {
+        // The label runs to its `:`, with any comments in it: `case 1 /* c */:`.
+        if let Some(colon) = children.iter().position(|n| n.kind() == ":") {
+            while i < colon {
+                self.space();
+                match children[i].kind() {
+                    "comment" => {
+                        self.raw(self.node_text(children[i]).trim_end_matches(['\r', '\n']))
+                    }
+                    _ => self.emit_expr_node(children[i]),
+                }
+                i += 1;
+            }
             self.raw(":");
             i += 1;
         }
