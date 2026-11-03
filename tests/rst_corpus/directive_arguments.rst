@@ -41,6 +41,9 @@
 
    Body of a generic admonition with an option.
 
+.. Invalid input: docutils wants content in a note ("Content block
+   expected"). Moldy still formats it, and the output must be stable.
+
 .. note::
    :class: x
 
