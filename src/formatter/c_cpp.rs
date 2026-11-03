@@ -34,6 +34,18 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
     fmt.emit_translation_unit(tree.root_node());
     let output = fmt.finish();
 
+    // Enum `=` padding moves the comments after it, so the comments are
+    // aligned last.
+    let output = if config.spacing.align_enum_equ_span > 0 {
+        align_enum_equals(
+            &output,
+            config.spacing.align_on_tabstop,
+            config.indent.width as usize,
+        )
+    } else {
+        output
+    };
+
     let output = if config.spacing.align_right_cmt_span > 0 {
         let normalize_single =
             config.spacing.align_right_cmt_style == crate::config::AlignCmtStyle::All;
@@ -44,16 +56,6 @@ pub fn format(source: &str, lang_key: &str, config: &Config) -> Result<String, M
             config.spacing.align_on_tabstop,
             config.indent.width as usize,
             config.spacing.align_right_cmt_span,
-        )
-    } else {
-        output
-    };
-
-    let output = if config.spacing.align_enum_equ_span > 0 {
-        align_enum_equals(
-            &output,
-            config.spacing.align_on_tabstop,
-            config.indent.width as usize,
         )
     } else {
         output
@@ -4603,8 +4605,10 @@ fn align_enum_equals(output: &str, on_tabstop: bool, tab_width: usize) -> String
         .iter()
         .map(|l| {
             let in_comment = in_block;
-            trailing_comment_col(l, &mut in_block);
-            enum_eq_col(l).filter(|_| !in_comment)
+            // A member is judged by its code: a trailing comment's last
+            // word or its `=` (`f(a); // x = y`) makes no member.
+            let code = &l[..trailing_comment_col(l, &mut in_block).unwrap_or(l.len())];
+            enum_eq_col(code).filter(|_| !in_comment)
         })
         .collect();
     let mut result: Vec<String> = lines.iter().map(|l| l.to_string()).collect();

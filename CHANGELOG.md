@@ -22,6 +22,14 @@ What changed for users of Moldy, newest release first. See
   a document's own title adornments, bullet characters and two spaces
   between sentences instead of docstrfmt's.
 
+### Changed
+
+- C and C++: a line of the form `NAME = value,` followed by a trailing
+  block comment now has its `=` aligned with the lines around it, as
+  one with a trailing line comment already had. This covers enum
+  members (`A = 1, /* a */`) and also the declarators of a declaration
+  split across lines (`int a = 1, /* a */` then `bbb = 2, /* b */`).
+
 ### Fixed
 
 - C and C++: a comment between a `case` or `default` label and its `:`
@@ -36,6 +44,15 @@ What changed for users of Moldy, newest release first. See
 - C and C++: of the blank lines at the top of a file, all but one were
   dropped, so each run dropped one more and the output was never
   stable. All of them are now dropped.
+- C and C++: a line was taken for an enum member, and its `=` aligned
+  with the lines around it, by the last character of its trailing
+  comment, and an `=` inside the comment could be the one aligned:
+  statements such as `x = 1; // set by hand` had their `=` padded, and
+  `f(a); // y = g(b)` had its comment pulled apart. Enum members with
+  trailing comments were also aligned after the comments were, which
+  left the comments out of line until a second run moved them. A line
+  is now judged by its code alone, and the comments are aligned after
+  the `=`.
 
 ## [0.8.0] - 2026-11-03
 

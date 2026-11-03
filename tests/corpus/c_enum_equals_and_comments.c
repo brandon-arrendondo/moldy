@@ -1,0 +1,31 @@
+/* An enum's `=` signs are aligned before its trailing comments, so the
+   comments line up after the padding. A statement is not an enum member
+   because its trailing comment ends in a word or holds an `=`. */
+enum state {
+    STATE_IDLE = 1, /* set by init and by unlock */
+    STATE_LOCKED = 2, /* set by lock */
+    STATE_DESTROYED = 3 /* set by free */
+};
+
+enum mutex_state {
+    MUTEX_FREE = 0, //!< Set by free
+    MUTEX_IDLE = 1, //!< Set by init and by unlock
+    MUTEX_LOCKED = 2, //!< Set by lock
+};
+
+struct config {
+    int sample_rate;
+    int no_silence;
+    int no_fixed_callback;
+};
+
+void setup(struct config *config, int keybits, int *w)
+{
+    int i;
+
+    config->sample_rate = 48000;
+    config->no_silence = 1;    // the output buffer is silenced by hand
+    config->no_fixed_callback = 1;         // no fixed sized callback guarantees
+    i = (keybits - 128) >> 6; // index: 0, 1, 2
+    w[1] = w[0] ^ i;          // W1 = FO(W0, CK1) ^ KR
+}
