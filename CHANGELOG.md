@@ -5,6 +5,8 @@ What changed for users of Moldy, newest release first. See
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-03
+
 ### Added
 
 - reStructuredText (`.rst`) formatting, following docstrfmt's layout:
